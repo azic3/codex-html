@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Static Demo Hub</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --panel: rgba(255, 255, 255, 0.88);
+      --text: #16324f;
+      --muted: #5f6f7f;
+      --accent: #27548a;
+      --accent-2: #d96c75;
+      --line: #d8e3ec;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(217, 108, 117, 0.22), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(39, 84, 138, 0.20), transparent 28%),
+        linear-gradient(180deg, #f9f6f1, #edf4fb);
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero {
+      padding: 28px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, #16324f, #27548a 58%, #77b6ea);
+      color: #fff;
+      box-shadow: 0 20px 60px rgba(22, 50, 79, 0.20);
+    }
+
+    .hero h1 {
+      margin: 8px 0 10px;
+      font-size: 34px;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 760px;
+      line-height: 1.8;
+      font-size: 15px;
+      opacity: 0.92;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 16px;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .btn-primary {
+      background: #fff;
+      color: #16324f;
+    }
+
+    .btn-ghost {
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.10);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin-top: 22px;
+    }
+
+    .card {
+      padding: 20px;
+      border-radius: 22px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 14px 40px rgba(19, 41, 63, 0.06);
+      backdrop-filter: blur(10px);
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 18px;
+    }
+
+    .card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .path {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #eef4fb;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div>EPOLL STATIC FILE DEMO</div>
+      <h1>静态资源示例结构已经准备好</h1>
+      <p>这个页面用来帮助你快速检查服务器是否能够正确返回登录页、CSS、JS 和图片目录。根路径现在会优先打开 <code>/login.html</code>，而这个首页可以通过目录列表页继续访问。</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/login.html">打开登录页</a>
+        <a class="btn btn-ghost" href="/images/">查看图片目录</a>
+        <a class="btn btn-ghost" href="/css/">查看样式目录</a>
+        <a class="btn btn-ghost" href="/js/">查看脚本目录</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>登录页面</h2>
+        <p>使用你提供的 `login.html` 结构进行了静态资源拆分，页面会加载独立的样式和脚本文件。</p>
+        <span class="path">/login.html</span>
+      </article>
+      <article class="card">
+        <h2>样式目录</h2>
+        <p>所有登录页样式放在 `css/login.css`，方便你后续继续拆分出主题色、布局和组件样式。</p>
+        <span class="path">/css/login.css</span>
+      </article>
+      <article class="card">
+        <h2>脚本目录</h2>
+        <p>交互逻辑放在 `js/login.js`，后续接接口或表单校验时直接从这里扩展，不需要再改 HTML 结构。</p>
+        <span class="path">/js/login.js</span>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

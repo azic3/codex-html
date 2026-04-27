@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XIAOCHEN - 登录</title>
+  <link rel="stylesheet" href="/css/login.css">
+</head>
+
+<body>
+  <main class="login-page">
+    <section class="login-card">
+      <div class="panel-switch" aria-label="登录操作切换">
+        <button class="switch-btn active" type="button" data-panel="login">登录</button>
+        <button class="switch-btn" type="button" data-panel="register">注册</button>
+        <button class="switch-btn" type="button" data-panel="reset">找回密码</button>
+      </div>
+
+      <section class="panel active" id="panel-login">
+        <h1>欢迎回来</h1>
+        <p class="panel-sub">登录你的账号，继续浏览和创作。</p>
+
+        <form id="login-form">
+          <label class="field">
+            <span>用户名 / 手机号</span>
+            <input type="text" id="login-user" name="username" placeholder="请输入用户名或手机号">
+          </label>
+
+          <label class="field">
+            <span>密码</span>
+            <div class="input-row">
+              <input type="password" id="login-pwd" name="password" placeholder="请输入密码">
+              <button class="ghost-btn" type="button" data-toggle="login-pwd">显示</button>
+            </div>
+          </label>
+
+          <div class="meta-row">
+            <label class="check-row">
+              <input type="checkbox" id="remember-me" name="remember">
+              <span>记住我</span>
+            </label>
+            <button class="text-btn" type="button" data-panel-jump="reset">忘记密码?</button>
+          </div>
+
+          <button class="submit-btn" type="submit" id="login-submit">登录</button>
+        </form>
+
+
+      </section>
+
+      <section class="panel" id="panel-register">
+        <h1>创建账号</h1>
+        <p class="panel-sub"></p>
+
+        <form id="register-form">
+          <label class="field">
+            <span>用户名</span>
+            <input type="text" id="register-user" name="username" placeholder="请输入用户名">
+          </label>
+
+          <label class="field">
+            <span>手机号</span>
+            <input type="text" id="register-phone" name="phone" placeholder="请输入手机号">
+          </label>
+
+          <label class="field">
+            <span>密码</span>
+            <input type="password" id="register-pwd" name="password" placeholder="请输入密码">
+          </label>
+
+          <label class="field">
+            <span>确认密码</span>
+            <input type="password" id="register-pwd-confirm" name="password_confirm" placeholder="请再次输入密码">
+          </label>
+
+          <button class="submit-btn secondary" type="submit" id="register-submit">完成注册</button>
+        </form>
+      </section>
+
+      <section class="panel" id="panel-reset">
+        <h1>找回密码</h1>
+        <p class="panel-sub">当前是演示版本，用来验证前端脚本和后端接口链路，验证码逻辑暂未接入数据库。</p>
+
+        <label class="field">
+          <span>手机号</span>
+          <input type="text" id="reset-phone" placeholder="请输入已绑定手机号">
+        </label>
+
+        <label class="field">
+          <span>验证码</span>
+          <div class="input-row">
+            <input type="text" id="reset-code" placeholder="请输入验证码">
+            <button class="ghost-btn" type="button" id="send-code-btn">获取验证码</button>
+          </div>
+        </label>
+
+        <button class="submit-btn secondary" type="button" id="reset-submit">重置密码</button>
+      </section>
+
+      <div class="status-box" id="status-box" aria-live="polite">
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/login.js"></script>
+</body>
+
+</html>
