@@ -1,0 +1,47 @@
+# IDE / editor local state
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# C++ build outputs
+server
+server.exe
+*.o
+*.obj
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.idb
+
+# Build directories
+build/
+cmake-build-*/
+Debug/
+Release/
+x64/
+x86/
+
+# Runtime upload directories
+videos/*
+!videos/.gitkeep
+images/uploads/*
+!images/uploads/.gitkeep
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+Thumbs.db
+.DS_Store
