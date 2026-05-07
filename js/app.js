@@ -41,7 +41,7 @@
     galleryItems = items.slice();
 
     if (!galleryItems.length) {
-      galleryGrid.innerHTML = '<div class="gallery-empty">图片墙还是空的，先上传第一张图片吧。</div>';
+      galleryGrid.innerHTML = '<div class="gallery-empty">图片库为空。</div>';
       return;
     }
 
@@ -88,7 +88,7 @@
         renderGallery(Array.isArray(items) ? items : []);
       })
       .catch(function () {
-        galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败，请确认服务端已经启动。</div>';
+        galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败。</div>';
       });
   }
 
@@ -117,12 +117,12 @@
     event.preventDefault();
 
     if (!uploadInput.files || !uploadInput.files[0]) {
-      setUploadStatus("先选择一张图片再上传。", "err");
+      setUploadStatus("请先选择图片。", "err");
       return;
     }
 
     if (uploadInput.files[0].size > 20 * 1024 * 1024) {
-      setUploadStatus("图片不能超过 20MB，请重新选择。", "err");
+      setUploadStatus("图片不能超过 20MB。", "err");
       return;
     }
 
@@ -130,8 +130,8 @@
     formData.append("image", uploadInput.files[0]);
 
     uploadSubmit.disabled = true;
-    uploadSubmit.textContent = "上传中...";
-    setUploadStatus("正在上传图片到服务端...", "");
+    uploadSubmit.textContent = "上传中";
+    setUploadStatus("正在上传图片...", "");
 
     fetch("/api/upload", {
       method: "POST",
@@ -147,16 +147,16 @@
           throw new Error(result.data && result.data.message ? result.data.message : "upload failed");
         }
 
-        setUploadStatus("上传成功，图片已经加入图片墙。", "ok");
+        setUploadStatus("上传成功。", "ok");
         uploadForm.reset();
         return loadImages();
       })
       .catch(function (error) {
-        setUploadStatus(error.message || "上传失败，请稍后重试。", "err");
+        setUploadStatus(error.message || "上传失败。", "err");
       })
       .finally(function () {
         uploadSubmit.disabled = false;
-        uploadSubmit.textContent = "上传到图片墙";
+        uploadSubmit.textContent = "上传";
       });
   });
 

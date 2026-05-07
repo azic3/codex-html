@@ -25,6 +25,7 @@ namespace
 {
 const std::size_t kReadBufferSize = 4096;
 const int kConnectionTimeout = 3 * TIMESLOT;
+const int kEmailCodeTimeout = 5 * 60;
 const std::size_t kMaxUploadSize = 20 * 1024 * 1024;
 int g_signal_pipefd[2] = {-1, -1};
 
@@ -98,6 +99,51 @@ bool is_video_extension(const std::string &path)
 bool is_safe_video_upload_extension(const std::string &path)
 {
     return is_video_extension(path);
+}
+
+bool is_valid_phone(const std::string &phone)
+{
+    if (phone.size() != 11 || phone[0] != '1')
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < phone.size(); ++i)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(phone[i])))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool is_valid_email(const std::string &email)
+{
+    const std::size_t at = email.find('@');
+    const std::size_t dot = email.rfind('.');
+    return at != std::string::npos &&
+           dot != std::string::npos &&
+           at > 0 &&
+           dot > at + 1 &&
+           dot + 1 < email.size();
+}
+
+bool is_six_digit_code(const std::string &code)
+{
+    if (code.size() != 6)
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < code.size(); ++i)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(code[i])))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 std::string json_escape(const std::string &value)
@@ -306,11 +352,12 @@ void SortTimerList::del_timer(UtilTimer *timer)
     delete timer;
 }
 
-void SortTimerList::tick()
+std::vector<int> SortTimerList::tick()
 {
+    std::vector<int> expired_fds;
     if (m_head == nullptr)
     {
-        return;
+        return expired_fds;
     }
 
     const time_t cur = time(nullptr);
@@ -323,6 +370,7 @@ void SortTimerList::tick()
         }
 
         UtilTimer *next = tmp->next;
+        expired_fds.push_back(tmp->sockfd);
         if (m_head == tmp)
         {
             m_head = next;
@@ -340,6 +388,8 @@ void SortTimerList::tick()
         delete tmp;
         tmp = next;
     }
+
+    return expired_fds;
 }
 
 WebServer::WebServer()
@@ -361,6 +411,7 @@ WebServer::WebServer()
       m_db_password("password"),
       m_db_name("qgydb")
 {
+    std::srand(static_cast<unsigned int>(std::time(nullptr) ^ getpid()));
     m_pipefd[0] = -1;
     m_pipefd[1] = -1;
 }
@@ -483,6 +534,7 @@ void WebServer::closefd(int fd)
 {
     if (fd >= 0)
     {
+        bool active_connection = (fd == m_listenfd || fd == m_pipefd[0] || fd == m_pipefd[1]);
         {
             std::unique_lock<std::mutex> lock(m_timer_mutex);
             std::unordered_map<int, UtilTimer *>::iterator it = m_conn_timers.find(fd);
@@ -490,7 +542,12 @@ void WebServer::closefd(int fd)
             {
                 m_timer_list.del_timer(it->second);
                 m_conn_timers.erase(it);
+                active_connection = true;
             }
+        }
+        if (!active_connection)
+        {
+            return;
         }
         remove_pending_request(fd);
         epoll_ctl(m_epollfd, EPOLL_CTL_DEL, fd, nullptr);
@@ -661,17 +718,7 @@ void WebServer::timer_handler()
     std::vector<int> expired_fds;
     {
         std::unique_lock<std::mutex> lock(m_timer_mutex);
-        const time_t cur = time(nullptr);
-        std::unordered_map<int, UtilTimer *>::iterator it = m_conn_timers.begin();
-        while (it != m_conn_timers.end())
-        {
-            if (it->second != nullptr && it->second->expire <= cur)
-            {
-                expired_fds.push_back(it->first);
-            }
-            ++it;
-        }
-        m_timer_list.tick();
+        expired_fds = m_timer_list.tick();
         for (std::size_t i = 0; i < expired_fds.size(); ++i)
         {
             m_conn_timers.erase(expired_fds[i]);
@@ -1089,6 +1136,64 @@ bool WebServer::register_user_with_db(const std::string &username,
         return false;
     }
 
+    detail.clear();
+    return true;
+}
+
+std::string WebServer::create_email_verification_code(const std::string &email) const
+{
+    const int value = 100000 + std::rand() % 900000;
+    std::ostringstream code_stream;
+    code_stream << value;
+
+    EmailVerificationCode record;
+    record.code = code_stream.str();
+    record.expire = time(nullptr) + kEmailCodeTimeout;
+
+    {
+        std::unique_lock<std::mutex> lock(m_email_code_mutex);
+        m_email_codes[email] = record;
+    }
+
+    return record.code;
+}
+
+bool WebServer::verify_email_code(const std::string &email, const std::string &code, std::string &detail) const
+{
+    if (!is_valid_email(email))
+    {
+        detail = "email is invalid";
+        return false;
+    }
+
+    if (!is_six_digit_code(code))
+    {
+        detail = "verification code is invalid";
+        return false;
+    }
+
+    std::unique_lock<std::mutex> lock(m_email_code_mutex);
+    std::unordered_map<std::string, EmailVerificationCode>::iterator it = m_email_codes.find(email);
+    if (it == m_email_codes.end())
+    {
+        detail = "verification code was not sent";
+        return false;
+    }
+
+    if (it->second.expire < time(nullptr))
+    {
+        m_email_codes.erase(it);
+        detail = "verification code expired";
+        return false;
+    }
+
+    if (it->second.code != code)
+    {
+        detail = "verification code mismatch";
+        return false;
+    }
+
+    m_email_codes.erase(it);
     detail.clear();
     return true;
 }
@@ -1604,16 +1709,26 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
 HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &request) const
 {
     const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
-    const std::string username = form.count("username") ? form.find("username")->second : "";
+    const std::string phone = form.count("phone") ? form.find("phone")->second : "";
+    const std::string email = form.count("email") ? form.find("email")->second : "";
+    const std::string email_code = form.count("email_code") ? form.find("email_code")->second : "";
     const std::string password = form.count("password") ? form.find("password")->second : "";
     std::string detail;
 
-    if (username.size() < 2)
+    if (!is_valid_phone(phone))
     {
         return build_response_with_body(400,
                                         "Bad Request",
                                         "application/json; charset=utf-8",
-                                        "{\"ok\":false,\"message\":\"username must be at least 2 characters\"}");
+                                        "{\"ok\":false,\"message\":\"phone number is invalid\"}");
+    }
+
+    if (!is_valid_email(email))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"email is invalid\"}");
     }
 
     if (password.size() < 4)
@@ -1624,10 +1739,22 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
                                         "{\"ok\":false,\"message\":\"password must be at least 4 characters\"}");
     }
 
-    if (!register_user_with_db(username, password, detail))
+    if (!verify_email_code(email, email_code, detail))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
+    if (!register_user_with_db(phone, password, detail))
     {
         const int status = detail == "username already exists" ? 409 : 500;
         const std::string status_text = detail == "username already exists" ? "Conflict" : "Internal Server Error";
+        if (detail == "username already exists")
+        {
+            detail = "phone number already registered";
+        }
         return build_response_with_body(status,
                                         status_text,
                                         "application/json; charset=utf-8",
@@ -1638,8 +1765,31 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
                                     "OK",
                                     "application/json; charset=utf-8",
                                     std::string("{\"ok\":true,\"message\":\"") +
-                                        json_escape("registration success, you can log in now") +
-                                        "\",\"username\":\"" + json_escape(username) + "\"}");
+                                        json_escape("registration success, you can log in with your phone number now") +
+                                        "\",\"username\":\"" + json_escape(phone) + "\"}");
+}
+
+HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request &request) const
+{
+    const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
+    const std::string email = form.count("email") ? form.find("email")->second : "";
+
+    if (!is_valid_email(email))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"email is invalid\"}");
+    }
+
+    const std::string code = create_email_verification_code(email);
+    std::cout << "Email verification code for " << email << ": " << code << std::endl;
+
+    return build_response_with_body(200,
+                                    "OK",
+                                    "application/json; charset=utf-8",
+                                    std::string("{\"ok\":true,\"message\":\"verification code generated\",") +
+                                        "\"debug_code\":\"" + json_escape(code) + "\"}");
 }
 
 HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request) const
@@ -1665,6 +1815,10 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     if (request.method == "POST" && request.path == "/api/register")
     {
         return handle_register_api(request);
+    }
+    if (request.method == "POST" && request.path == "/api/send-email-code")
+    {
+        return handle_send_email_code_api(request);
     }
     if (request.method == "POST" && request.path == "/api/reset")
     {

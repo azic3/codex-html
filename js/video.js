@@ -18,7 +18,7 @@
     videoGrid.innerHTML = "";
 
     if (!items.length) {
-      videoGrid.innerHTML = '<div class="gallery-empty">视频目录还是空的，先上传第一个视频吧。</div>';
+      videoGrid.innerHTML = '<div class="gallery-empty">视频库为空。</div>';
       return;
     }
 
@@ -48,7 +48,7 @@
         renderVideos(Array.isArray(items) ? items : []);
       })
       .catch(function () {
-        videoGrid.innerHTML = '<div class="gallery-empty">视频列表加载失败，请确认服务端已经启动。</div>';
+        videoGrid.innerHTML = '<div class="gallery-empty">视频列表加载失败。</div>';
       });
   }
 
@@ -56,12 +56,12 @@
     event.preventDefault();
 
     if (!uploadInput.files || !uploadInput.files[0]) {
-      setUploadStatus("先选择一个视频再上传。", "err");
+      setUploadStatus("请先选择视频。", "err");
       return;
     }
 
     if (uploadInput.files[0].size > 20 * 1024 * 1024) {
-      setUploadStatus("视频不能超过 20MB，请重新选择。", "err");
+      setUploadStatus("视频不能超过 20MB。", "err");
       return;
     }
 
@@ -69,8 +69,8 @@
     formData.append("video", uploadInput.files[0]);
 
     uploadSubmit.disabled = true;
-    uploadSubmit.textContent = "上传中...";
-    setUploadStatus("正在上传视频到服务端...", "");
+    uploadSubmit.textContent = "上传中";
+    setUploadStatus("正在上传视频...", "");
 
     fetch("/api/upload-video", {
       method: "POST",
@@ -86,16 +86,16 @@
           throw new Error(result.data && result.data.message ? result.data.message : "upload failed");
         }
 
-        setUploadStatus("上传成功，视频已经加入视频目录。", "ok");
+        setUploadStatus("上传成功。", "ok");
         uploadForm.reset();
         return loadVideos();
       })
       .catch(function (error) {
-        setUploadStatus(error.message || "上传失败，请稍后重试。", "err");
+        setUploadStatus(error.message || "上传失败。", "err");
       })
       .finally(function () {
         uploadSubmit.disabled = false;
-        uploadSubmit.textContent = "上传到视频目录";
+        uploadSubmit.textContent = "上传";
       });
   });
 

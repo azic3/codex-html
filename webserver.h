@@ -7,6 +7,7 @@
 #include <sys/epoll.h>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 #include "CGmysql.h"
 #include "http_conn.h"
@@ -36,7 +37,7 @@ public:
     void add_timer(UtilTimer *timer);
     void adjust_timer(UtilTimer *timer);
     void del_timer(UtilTimer *timer);
-    void tick();
+    std::vector<int> tick();
 
 private:
     void add_timer(UtilTimer *timer, UtilTimer *lst_head);
@@ -83,6 +84,7 @@ private:
     HttpConn::Response handle_request(const HttpConn::Request &request) const;
     HttpConn::Response handle_login_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_register_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_send_email_code_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_reset_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_upload_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_upload_video_api(const HttpConn::Request &request) const;
@@ -119,8 +121,16 @@ private:
                              std::string &detail) const;
     bool validate_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
     bool register_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
+    std::string create_email_verification_code(const std::string &email) const;
+    bool verify_email_code(const std::string &email, const std::string &code, std::string &detail) const;
 
 private:
+    struct EmailVerificationCode
+    {
+        std::string code;
+        time_t expire;
+    };
+
     int m_port;
     int m_log_write;
     int m_close_log;
@@ -143,8 +153,10 @@ private:
     std::unique_ptr<ThreadPool> m_thread_pool;
     std::unordered_map<int, std::string> m_pending_requests;
     std::unordered_map<int, UtilTimer *> m_conn_timers;
+    mutable std::unordered_map<std::string, EmailVerificationCode> m_email_codes;
     mutable std::mutex m_pending_mutex;
     mutable std::mutex m_timer_mutex;
+    mutable std::mutex m_email_code_mutex;
     int m_pipefd[2];
     SortTimerList m_timer_list;
     epoll_event m_events[MAX_EVENT_NUMBER];

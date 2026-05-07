@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>XIAOCHEN - Video Center</title>
+  <title>XIAOCHEN - 视频管理</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,36 +13,43 @@
         <span class="app-logo-mark">XC</span>
         <div>
           <strong>XIAOCHEN</strong>
-          <span>Creator Console</span>
+          <span>内容控制台</span>
         </div>
       </div>
 
-      <nav class="app-nav">
-        <a href="/app.html">图片墙</a>
-        <a class="active" href="/video.html">视频中心</a>
-        <a href="/login.html">返回登录页</a>
+      <nav class="app-nav" aria-label="主导航">
+        <a href="/app.html">图片库</a>
+        <a class="active" href="/video.html">视频库</a>
         <a href="/images/">图片目录</a>
         <a href="/videos/">视频目录</a>
+        <a href="/login.html">退出登录</a>
       </nav>
     </aside>
 
     <main class="app-main">
-      <header class="hero-card video-hero">
+      <header class="page-head">
         <div>
-          <div class="eyebrow">Video Upload Ready</div>
-          <h1>视频上传单独放在视频目录</h1>
-          <p>这里是独立的视频上传页面。上传成功后，视频会保存到 <code>/videos/</code> 目录，并自动显示在下面的视频列表里。</p>
-          <div class="hero-actions">
-            <a class="hero-link" href="/videos/">打开视频目录</a>
-          </div>
+          <div class="eyebrow">Videos</div>
+          <h1>视频库</h1>
+        </div>
+        <div class="page-actions">
+          <a class="action-btn secondary" href="/videos/">打开目录</a>
+        </div>
+      </header>
+
+      <section class="hero-card video-hero">
+        <div class="hero-copy">
+          <span class="status-pill">媒体资源</span>
+          <h2>集中管理视频文件</h2>
+          <p>上传成功的视频会保存到 <code>/videos/</code>，列表支持直接播放。</p>
         </div>
         <div class="hero-video-note">
           <strong>支持格式</strong>
-          <span>mp4 / webm / ogg / mov / avi / mkv / m4v</span>
+          <span>MP4 / WEBM / OGG / MOV / AVI / MKV / M4V</span>
           <strong>大小限制</strong>
           <span>单个视频最大 20MB</span>
         </div>
-      </header>
+      </section>
 
       <section class="upload-panel">
         <div class="section-head compact">
@@ -50,7 +57,7 @@
             <div class="eyebrow">Upload</div>
             <h2>上传视频</h2>
           </div>
-          <p>视频上传和图片上传分开管理，文件会进入单独的视频目录。</p>
+          <p>视频文件会进入独立目录。</p>
         </div>
 
         <form class="upload-form" id="video-upload-form">
@@ -58,19 +65,19 @@
             <span>选择视频</span>
             <input type="file" id="upload-video" name="video" accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,video/*">
           </label>
-          <button class="hero-link upload-btn" type="submit" id="video-upload-submit">上传到视频目录</button>
+          <button class="action-btn upload-btn" type="submit" id="video-upload-submit">上传</button>
         </form>
 
-        <div class="upload-status" id="video-upload-status" aria-live="polite">视频还没有开始上传，先选择一个文件试试。</div>
+        <div class="upload-status" id="video-upload-status" aria-live="polite">等待选择视频。</div>
       </section>
 
       <section class="gallery-panel">
         <div class="section-head">
           <div>
-            <div class="eyebrow">Local Videos</div>
+            <div class="eyebrow">Library</div>
             <h2>视频列表</h2>
           </div>
-          <p>最新上传的视频会排在最前面。点击卡片可直接在当前页面播放预览。</p>
+          <p>按最新资源优先展示。</p>
         </div>
 
         <div class="video-grid" id="video-grid"></div>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>XIAOCHEN - Gallery App</title>
+  <title>XIAOCHEN - 图片管理</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -13,32 +13,39 @@
         <span class="app-logo-mark">XC</span>
         <div>
           <strong>XIAOCHEN</strong>
-          <span>Creator Console</span>
+          <span>内容控制台</span>
         </div>
       </div>
 
-      <nav class="app-nav">
-        <a class="active" href="/app.html">图片墙</a>
-        <a href="/video.html">视频中心</a>
-        <a href="/login.html">返回登录页</a>
+      <nav class="app-nav" aria-label="主导航">
+        <a class="active" href="/app.html">图片库</a>
+        <a href="/video.html">视频库</a>
         <a href="/images/">图片目录</a>
         <a href="/videos/">视频目录</a>
+        <a href="/login.html">退出登录</a>
       </nav>
     </aside>
 
     <main class="app-main">
-      <header class="hero-card">
+      <header class="page-head">
         <div>
-          <div class="eyebrow">Image Wall Ready</div>
-          <h1>上传图片后会立刻出现在图片墙</h1>
-          <p>现在图片墙会从服务端动态读取图片列表。你上传的新图片会保存到 <code>/images/</code> 目录，并自动展示在下方的卡片墙里。</p>
-          <div class="hero-actions">
-            <a class="hero-link" href="/images/">打开图片目录</a>
-            <button class="hero-link ghost" type="button" id="open-first-image">预览第一张</button>
-          </div>
+          <div class="eyebrow">Images</div>
+          <h1>图片库</h1>
         </div>
-        <img src="/images/凡人修仙_001.png" alt="Hero preview" id="hero-preview">
+        <div class="page-actions">
+          <a class="action-btn secondary" href="/images/">打开目录</a>
+          <button class="action-btn" type="button" id="open-first-image">预览首图</button>
+        </div>
       </header>
+
+      <section class="hero-card">
+        <div class="hero-copy">
+          <span class="status-pill">本地资源</span>
+          <h2>管理上传后的图片素材</h2>
+          <p>上传成功的图片会保存到 <code>/images/</code>，并显示在下方列表中。</p>
+        </div>
+        <img src="/images/凡人修仙_001.png" alt="图片预览" id="hero-preview">
+      </section>
 
       <section class="upload-panel">
         <div class="section-head compact">
@@ -46,7 +53,7 @@
             <div class="eyebrow">Upload</div>
             <h2>上传图片</h2>
           </div>
-          <p>支持 png、jpg、jpeg、gif、bmp、webp、svg，单张图片最大 20MB。上传完成后图片墙会自动刷新，并按最新上传排序。</p>
+          <p>PNG、JPG、JPEG、GIF、BMP、WEBP、SVG，单张最大 20MB。</p>
         </div>
 
         <form class="upload-form" id="upload-form">
@@ -54,19 +61,19 @@
             <span>选择图片</span>
             <input type="file" id="upload-image" name="image" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,image/*">
           </label>
-          <button class="hero-link upload-btn" type="submit" id="upload-submit">上传到图片墙</button>
+          <button class="action-btn upload-btn" type="submit" id="upload-submit">上传</button>
         </form>
 
-        <div class="upload-status" id="upload-status" aria-live="polite">还没有开始上传，先选择一张图片试试。</div>
+        <div class="upload-status" id="upload-status" aria-live="polite">等待选择图片。</div>
       </section>
 
       <section class="gallery-panel">
         <div class="section-head">
           <div>
-            <div class="eyebrow">Local Assets</div>
-            <h2>图片墙</h2>
+            <div class="eyebrow">Library</div>
+            <h2>图片列表</h2>
           </div>
-          <p>点击卡片进入大图预览，上传成功的新图片会直接出现在这里。</p>
+          <p>按最新资源优先展示。</p>
         </div>
 
         <div class="gallery-grid" id="gallery-grid"></div>
@@ -93,10 +100,10 @@
       <div class="lightbox-meta">
         <div class="eyebrow">Preview</div>
         <h3 id="lightbox-title">图片预览</h3>
-        <a id="lightbox-link" href="#" target="_blank" rel="noopener noreferrer">在新标签打开原图</a>
+        <a id="lightbox-link" href="#" target="_blank" rel="noopener noreferrer">新窗口打开</a>
       </div>
       <div class="lightbox-stage">
-        <img id="lightbox-image" src="" alt="Large preview">
+        <img id="lightbox-image" src="" alt="大图预览">
       </div>
     </div>
   </div>

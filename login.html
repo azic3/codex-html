@@ -23,8 +23,8 @@
 
         <form id="login-form">
           <label class="field">
-            <span>用户名 / 手机号</span>
-            <input type="text" id="login-user" name="username" placeholder="请输入用户名或手机号">
+            <span>手机号</span>
+            <input type="text" id="login-user" name="username" placeholder="请输入手机号">
           </label>
 
           <label class="field">
@@ -45,23 +45,29 @@
 
           <button class="submit-btn" type="submit" id="login-submit">登录</button>
         </form>
-
-
       </section>
 
       <section class="panel" id="panel-register">
-        <h1>创建账号</h1>
-        <p class="panel-sub"></p>
+        <h1>手机号注册</h1>
+        <p class="panel-sub">使用手机号作为登录账号，邮箱验证码用于确认本次注册。</p>
 
         <form id="register-form">
           <label class="field">
-            <span>用户名</span>
-            <input type="text" id="register-user" name="username" placeholder="请输入用户名">
+            <span>手机号</span>
+            <input type="text" id="register-phone" name="phone" placeholder="请输入 11 位手机号">
           </label>
 
           <label class="field">
-            <span>手机号</span>
-            <input type="text" id="register-phone" name="phone" placeholder="请输入手机号">
+            <span>邮箱</span>
+            <input type="email" id="register-email" name="email" placeholder="请输入接收验证码的邮箱">
+          </label>
+
+          <label class="field">
+            <span>邮箱验证码</span>
+            <div class="input-row">
+              <input type="text" id="register-email-code" name="email_code" placeholder="请输入 6 位验证码">
+              <button class="ghost-btn" type="button" id="register-send-code-btn">获取验证码</button>
+            </div>
           </label>
 
           <label class="field">
@@ -80,7 +86,7 @@
 
       <section class="panel" id="panel-reset">
         <h1>找回密码</h1>
-        <p class="panel-sub">当前是演示版本，用来验证前端脚本和后端接口链路，验证码逻辑暂未接入数据库。</p>
+        <p class="panel-sub">当前找回密码接口仍是占位版本，注册流程已经接入邮箱验证码。</p>
 
         <label class="field">
           <span>手机号</span>
@@ -98,8 +104,7 @@
         <button class="submit-btn secondary" type="button" id="reset-submit">重置密码</button>
       </section>
 
-      <div class="status-box" id="status-box" aria-live="polite">
-      </div>
+      <div class="status-box" id="status-box" aria-live="polite"></div>
     </section>
   </main>
 

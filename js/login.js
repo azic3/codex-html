@@ -9,6 +9,7 @@
   var registerSubmit = document.getElementById("register-submit");
   var resetSubmit = document.getElementById("reset-submit");
   var sendCodeBtn = document.getElementById("send-code-btn");
+  var registerSendCodeBtn = document.getElementById("register-send-code-btn");
 
   function showPanel(name) {
     switchButtons.forEach(function (button) {
@@ -19,12 +20,10 @@
       panel.classList.toggle("active", panel.id === "panel-" + name);
     });
 
-    if (name === "login") {
-      setStatus("", "");
-    } else if (name === "register") {
-      setStatus("", "");
+    if (name === "reset") {
+      setStatus("找回密码当前是占位版本，注册页的邮箱验证码已经接入服务端。", "");
     } else {
-      setStatus("找回密码当前是接口占位版本，用来验证前后端链路。", "");
+      setStatus("", "");
     }
   }
 
@@ -36,6 +35,14 @@
     }
   }
 
+  function isValidPhone(phone) {
+    return /^1\d{10}$/.test(phone);
+  }
+
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
   function togglePassword(targetId) {
     var input = document.getElementById(targetId);
     if (!input) {
@@ -45,9 +52,9 @@
   }
 
   function countdown(button) {
-    var seconds = 8;
-    button.disabled = true;
+    var seconds = 30;
     var origin = button.textContent;
+    button.disabled = true;
     button.textContent = "已发送 " + seconds + "s";
 
     var timer = window.setInterval(function () {
@@ -102,7 +109,7 @@
     var remember = document.getElementById("remember-me").checked;
 
     if (!username || !password) {
-      setStatus("请先输入用户名和密码。", "err");
+      setStatus("请先输入手机号和密码。", "err");
       return;
     }
 
@@ -136,16 +143,67 @@
       });
   });
 
+  registerSendCodeBtn.addEventListener("click", function () {
+    var email = document.getElementById("register-email").value.trim();
+
+    if (!isValidEmail(email)) {
+      setStatus("请先输入正确的邮箱地址。", "err");
+      return;
+    }
+
+    registerSendCodeBtn.disabled = true;
+    setStatus("正在生成邮箱验证码...", "");
+
+    var body = new URLSearchParams();
+    body.set("email", email);
+
+    postForm("/api/send-email-code", body)
+      .then(function (result) {
+        if (result.ok && result.data.ok) {
+          var tip = "验证码已生成，请查看服务端控制台。";
+          if (result.data.debug_code) {
+            tip += " 演示验证码：" + result.data.debug_code;
+          }
+          setStatus(tip, "ok");
+          countdown(registerSendCodeBtn);
+          return;
+        }
+
+        registerSendCodeBtn.disabled = false;
+        setStatus(result.data.message || "验证码发送失败。", "err");
+      })
+      .catch(function () {
+        registerSendCodeBtn.disabled = false;
+        setStatus("验证码请求失败，请确认服务端已经启动。", "err");
+      });
+  });
+
   registerForm.addEventListener("submit", function (event) {
     event.preventDefault();
 
-    var username = document.getElementById("register-user").value.trim();
     var phone = document.getElementById("register-phone").value.trim();
+    var email = document.getElementById("register-email").value.trim();
+    var emailCode = document.getElementById("register-email-code").value.trim();
     var password = document.getElementById("register-pwd").value;
     var confirmPassword = document.getElementById("register-pwd-confirm").value;
 
-    if (!username || !password) {
-      setStatus("请先填写用户名和密码。", "err");
+    if (!isValidPhone(phone)) {
+      setStatus("请输入正确的 11 位手机号。", "err");
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setStatus("请输入正确的邮箱地址。", "err");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(emailCode)) {
+      setStatus("请输入 6 位邮箱验证码。", "err");
+      return;
+    }
+
+    if (!password) {
+      setStatus("请填写密码。", "err");
       return;
     }
 
@@ -159,8 +217,9 @@
     setStatus("正在请求服务端 /api/register ...", "");
 
     var body = new URLSearchParams();
-    body.set("username", username);
     body.set("phone", phone);
+    body.set("email", email);
+    body.set("email_code", emailCode);
     body.set("password", password);
 
     postForm("/api/register", body)
@@ -168,7 +227,7 @@
         if (result.ok && result.data.ok) {
           setStatus(result.data.message || "注册成功，请直接登录。", "ok");
           registerForm.reset();
-          document.getElementById("login-user").value = username;
+          document.getElementById("login-user").value = phone;
           showPanel("login");
           return;
         }
@@ -192,9 +251,9 @@
   });
 
   sendCodeBtn.addEventListener("click", function () {
-    setStatus("模拟发送验证码成功，这说明前端脚本和服务端静态资源返回都正常。", "ok");
+    setStatus("找回密码验证码仍是占位功能。", "ok");
     countdown(sendCodeBtn);
   });
 
-  setStatus("登录和注册按钮现在都会真正向服务端提交表单。演示账号：admin / 12345", "");
+  setStatus("手机号注册已接入邮箱验证码。演示账号：admin / 12345", "");
 })();
