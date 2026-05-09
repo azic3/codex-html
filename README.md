@@ -32,6 +32,7 @@ XIAOCHEN WebServer 是一个基于 C++ 的轻量级 WebServer 示例项目，使
 │   ├── css/
 │   ├── js/
 │   ├── images/
+│   ├── videos/           # 上传视频保存目录
 │   ├── login.html
 │   ├── app.html
 │   └── video.html
@@ -172,6 +173,8 @@ POST /api/upload-video
 GET  /api/images
 GET  /api/videos
 ```
+
+上传视频会保存到 `public/videos/`，浏览器访问路径为 `/videos/文件名`。
 
 ## 安全说明
 

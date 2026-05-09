@@ -33,7 +33,8 @@
 │   ├── video.html        # 视频库页面
 │   ├── css/              # 页面样式
 │   ├── js/               # 前端交互
-│   └── images/           # 内置图片资源与上传图片目录
+│   ├── images/           # 内置图片资源与上传图片目录
+│   └── videos/           # 上传视频目录
 ├── docs/                 # SMTP、密码哈希等说明
 ├── scripts/              # 本地启动脚本
 ├── config/local/         # 本地密钥配置，不提交
@@ -149,7 +150,7 @@ GET  /api/videos
 - 图片允许：`png`、`jpg`、`jpeg`、`gif`、`bmp`、`webp`、`svg`。
 - 视频允许：`mp4`、`webm`、`ogg`、`mov`、`avi`、`mkv`、`m4v`。
 - 上传文件会经过文件名清理和唯一命名。
-- 图片保存到 `public/images/`，视频保存到 `public/videos/`。
+- 图片保存到 `public/images/`，视频保存到 `public/videos/`，浏览器路径分别是 `/images/...` 和 `/videos/...`。
 
 ### 静态资源和目录
 

@@ -1630,7 +1630,8 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
     std::ofstream output(full_path.c_str(), std::ios::out | std::ios::binary);
     if (!output.is_open())
     {
-        detail = "failed to open target image file";
+        detail = expect_image ? "failed to open target image file"
+                              : "failed to open target video file";
         return false;
     }
 
