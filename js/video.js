@@ -60,8 +60,8 @@
       return;
     }
 
-    if (uploadInput.files[0].size > 20 * 1024 * 1024) {
-      setUploadStatus("视频不能超过 20MB。", "err");
+    if (uploadInput.files[0].size > 1024 * 1024 * 1024) {
+      setUploadStatus("视频不能超过 1GB。", "err");
       return;
     }
 

@@ -11,6 +11,8 @@
 
 #include "CGmysql.h"
 #include "http_conn.h"
+#include "password_hasher.h"
+#include "smtp_client.h"
 #include "threadpool.h"
 
 const int MAX_EVENT_NUMBER = 1024;
@@ -121,7 +123,8 @@ private:
                              std::string &detail) const;
     bool validate_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
     bool register_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
-    std::string create_email_verification_code(const std::string &email) const;
+    std::string generate_email_verification_code() const;
+    void save_email_verification_code(const std::string &email, const std::string &code) const;
     bool verify_email_code(const std::string &email, const std::string &code, std::string &detail) const;
 
 private:

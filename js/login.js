@@ -152,7 +152,7 @@
     }
 
     registerSendCodeBtn.disabled = true;
-    setStatus("正在生成邮箱验证码...", "");
+    setStatus("正在发送邮箱验证码...", "");
 
     var body = new URLSearchParams();
     body.set("email", email);
@@ -160,11 +160,7 @@
     postForm("/api/send-email-code", body)
       .then(function (result) {
         if (result.ok && result.data.ok) {
-          var tip = "验证码已生成，请查看服务端控制台。";
-          if (result.data.debug_code) {
-            tip += " 演示验证码：" + result.data.debug_code;
-          }
-          setStatus(tip, "ok");
+          setStatus(result.data.message || "验证码已发送，请查看邮箱。", "ok");
           countdown(registerSendCodeBtn);
           return;
         }

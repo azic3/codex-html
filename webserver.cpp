@@ -26,7 +26,8 @@ namespace
 const std::size_t kReadBufferSize = 4096;
 const int kConnectionTimeout = 3 * TIMESLOT;
 const int kEmailCodeTimeout = 5 * 60;
-const std::size_t kMaxUploadSize = 20 * 1024 * 1024;
+const std::size_t kMaxImageUploadSize = 20 * 1024 * 1024;
+const std::size_t kMaxVideoUploadSize = 1024ULL * 1024 * 1024;
 int g_signal_pipefd[2] = {-1, -1};
 
 int set_nonblocking(int fd)
@@ -122,6 +123,20 @@ bool is_valid_email(const std::string &email)
 {
     const std::size_t at = email.find('@');
     const std::size_t dot = email.rfind('.');
+    if (email.find('@', at == std::string::npos ? 0 : at + 1) != std::string::npos)
+    {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < email.size(); ++i)
+    {
+        const unsigned char ch = static_cast<unsigned char>(email[i]);
+        if (ch <= 32 || ch >= 127 || email[i] == '<' || email[i] == '>')
+        {
+            return false;
+        }
+    }
+
     return at != std::string::npos &&
            dot != std::string::npos &&
            at > 0 &&
@@ -1091,10 +1106,27 @@ bool WebServer::validate_user_with_db(const std::string &username,
         return false;
     }
 
-    if (db_password != password)
+    bool matched = false;
+    bool needs_rehash = false;
+    if (!PasswordHasher::verify_password(password, db_password, matched, needs_rehash, detail))
+    {
+        return false;
+    }
+
+    if (!matched)
     {
         detail = "password mismatch";
         return false;
+    }
+
+    if (needs_rehash)
+    {
+        std::string hashed_password;
+        std::string hash_detail;
+        if (PasswordHasher::hash_password(password, hashed_password, hash_detail))
+        {
+            m_db_pool.update_user_password(username, hashed_password);
+        }
     }
 
     detail.clear();
@@ -1130,7 +1162,13 @@ bool WebServer::register_user_with_db(const std::string &username,
         return false;
     }
 
-    if (!m_db_pool.insert_user(username, password))
+    std::string hashed_password;
+    if (!PasswordHasher::hash_password(password, hashed_password, detail))
+    {
+        return false;
+    }
+
+    if (!m_db_pool.insert_user(username, hashed_password))
     {
         detail = m_db_pool.last_error();
         return false;
@@ -1140,22 +1178,22 @@ bool WebServer::register_user_with_db(const std::string &username,
     return true;
 }
 
-std::string WebServer::create_email_verification_code(const std::string &email) const
+std::string WebServer::generate_email_verification_code() const
 {
     const int value = 100000 + std::rand() % 900000;
     std::ostringstream code_stream;
     code_stream << value;
+    return code_stream.str();
+}
 
+void WebServer::save_email_verification_code(const std::string &email, const std::string &code) const
+{
     EmailVerificationCode record;
-    record.code = code_stream.str();
+    record.code = code;
     record.expire = time(nullptr) + kEmailCodeTimeout;
 
-    {
-        std::unique_lock<std::mutex> lock(m_email_code_mutex);
-        m_email_codes[email] = record;
-    }
-
-    return record.code;
+    std::unique_lock<std::mutex> lock(m_email_code_mutex);
+    m_email_codes[email] = record;
 }
 
 bool WebServer::verify_email_code(const std::string &email, const std::string &code, std::string &detail) const
@@ -1464,10 +1502,14 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
                                     std::string &saved_path,
                                     std::string &detail) const
 {
-    if (request.body.size() > kMaxUploadSize + 4096)
+    const std::size_t max_upload_size = expect_image ? kMaxImageUploadSize : kMaxVideoUploadSize;
+    const char *max_upload_label = expect_image ? "20MB" : "1GB";
+
+    if (request.body.size() > max_upload_size + 4096)
     {
-        detail = expect_image ? "image is too large, max size is 20MB"
-                              : "video is too large, max size is 20MB";
+        detail = std::string(expect_image ? "image is too large, max size is "
+                                          : "video is too large, max size is ") +
+                 max_upload_label;
         return false;
     }
 
@@ -1567,10 +1609,11 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
         return false;
     }
 
-    if (data_end - data_start > kMaxUploadSize)
+    if (data_end - data_start > max_upload_size)
     {
-        detail = expect_image ? "image is too large, max size is 20MB"
-                              : "video is too large, max size is 20MB";
+        detail = std::string(expect_image ? "image is too large, max size is "
+                                          : "video is too large, max size is ") +
+                 max_upload_label;
         return false;
     }
 
@@ -1782,14 +1825,24 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
                                         "{\"ok\":false,\"message\":\"email is invalid\"}");
     }
 
-    const std::string code = create_email_verification_code(email);
-    std::cout << "Email verification code for " << email << ": " << code << std::endl;
+    const std::string code = generate_email_verification_code();
+    std::string detail;
+    if (!SmtpClient::send_verification_code(email, code, detail))
+    {
+        std::cerr << "SMTP send failed for " << email << ": " << detail << std::endl;
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"verification code email failed: ") +
+                                            json_escape(detail) + "\"}");
+    }
+
+    save_email_verification_code(email, code);
 
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    std::string("{\"ok\":true,\"message\":\"verification code generated\",") +
-                                        "\"debug_code\":\"" + json_escape(code) + "\"}");
+                                    "{\"ok\":true,\"message\":\"verification code sent\"}");
 }
 
 HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request) const

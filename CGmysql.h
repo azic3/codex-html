@@ -48,6 +48,7 @@ public:
     bool fetch_user_password(const std::string &username, std::string &password_out);
     bool user_exists(const std::string &username, bool &exists_out);
     bool insert_user(const std::string &username, const std::string &password);
+    bool update_user_password(const std::string &username, const std::string &password);
 
 private:
     void set_error(const std::string &message);

@@ -45,3 +45,7 @@ images/uploads/*
 *.swp
 Thumbs.db
 .DS_Store
+
+# Local secrets
+smtp.env
+run_server.local.sh

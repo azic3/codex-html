@@ -277,6 +277,43 @@ bool CGMysqlPool::insert_user(const std::string &username, const std::string &pa
 #endif
 }
 
+bool CGMysqlPool::update_user_password(const std::string &username, const std::string &password)
+{
+#if !CGMYSQL_HAS_CLIENT
+    (void)username;
+    (void)password;
+    set_error("MySQL client support is unavailable in this build.");
+    return false;
+#else
+    CGMysqlGuard guard(*this);
+    if (!guard.valid())
+    {
+        set_error("No database connection is available.");
+        return false;
+    }
+
+    MYSQL *conn = guard.get();
+    const std::string escaped_user = escape_string(conn, username);
+    const std::string escaped_password = escape_string(conn, password);
+    const std::string query =
+        "UPDATE user SET passwd='" + escaped_password + "' WHERE username='" + escaped_user + "' LIMIT 1";
+
+    if (mysql_query(conn, query.c_str()) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_query failed: " << mysql_error(conn);
+        set_error(message.str());
+        return false;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_last_error.clear();
+    }
+    return true;
+#endif
+}
+
 void CGMysqlPool::set_error(const std::string &message)
 {
     std::unique_lock<std::mutex> lock(m_mutex);
