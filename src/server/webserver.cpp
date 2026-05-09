@@ -646,7 +646,7 @@ void WebServer::eventListen()
     char cwd[512] = {0};
     if (getcwd(cwd, sizeof(cwd)) != nullptr)
     {
-        m_root = cwd;
+        m_root = std::string(cwd) + "/public";
     }
 
     std::cout << "Server listening on 0.0.0.0:" << m_port << std::endl;

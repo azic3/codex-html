@@ -19,20 +19,26 @@ XIAOCHEN WebServer 是一个基于 C++ 的轻量级 WebServer 示例项目，使
 
 ```text
 .
-├── main.cpp              # 程序入口
-├── config.h/.cpp         # 命令行参数解析
-├── webserver.h/.cpp      # WebServer 主体逻辑
-├── http_conn.h/.cpp      # HTTP 请求解析和响应序列化
-├── CGmysql.h/.cpp        # MySQL 连接池与用户表操作
-├── threadpool.h/.cpp     # 线程池
-├── smtp_client.h/.cpp    # SMTP 邮箱验证码发送
-├── password_hasher.h/.cpp # 密码哈希与验证
-├── login.html            # 登录、注册页面
-├── app.html              # 图片库页面
-├── video.html            # 视频库页面
-├── css/                  # 页面样式
-├── js/                   # 前端交互脚本
-└── images/               # 内置图片资源
+├── src/                  # C++ 后端源码
+│   ├── config/           # 命令行参数解析
+│   ├── db/               # MySQL 连接池与用户表操作
+│   ├── http/             # HTTP 请求解析
+│   ├── mail/             # SMTP 邮箱验证码发送
+│   ├── security/         # 密码哈希与验证
+│   ├── server/           # WebServer 主体逻辑
+│   ├── threadpool/       # 线程池
+│   └── main.cpp          # 程序入口
+├── public/               # 浏览器可访问的页面和静态资源
+│   ├── css/
+│   ├── js/
+│   ├── images/
+│   ├── login.html
+│   ├── app.html
+│   └── video.html
+├── docs/                 # 补充说明文档
+├── scripts/              # 本地启动脚本
+├── config/local/         # 本地密钥配置，已被 git 忽略
+└── Makefile
 ```
 
 ## 环境要求
@@ -93,7 +99,7 @@ export XIAOCHEN_SMTP_LOGIN_OPTIONS="AUTH=LOGIN"
 
 注意：`XIAOCHEN_SMTP_PASSWORD` 通常是邮箱服务商提供的 SMTP 授权码，不是邮箱登录密码。
 
-更多说明见 [SMTP_SETUP.md](SMTP_SETUP.md)。
+更多说明见 [docs/SMTP_SETUP.md](docs/SMTP_SETUP.md)。
 
 ## 构建
 
@@ -104,13 +110,17 @@ make
 或手动编译：
 
 ```bash
-g++ -std=c++11 -pthread main.cpp config.cpp webserver.cpp http_conn.cpp threadpool.cpp CGmysql.cpp smtp_client.cpp password_hasher.cpp -lmysqlclient -lcurl -lcrypt -o server
+g++ -std=c++11 -pthread \
+  -Isrc/config -Isrc/server -Isrc/http -Isrc/threadpool -Isrc/db -Isrc/mail -Isrc/security \
+  src/main.cpp src/config/config.cpp src/server/webserver.cpp src/http/http_conn.cpp \
+  src/threadpool/threadpool.cpp src/db/CGmysql.cpp src/mail/smtp_client.cpp \
+  src/security/password_hasher.cpp -lmysqlclient -lcurl -lcrypt -o build/server
 ```
 
 ## 运行
 
 ```bash
-./server -p 9006 -s 4 -t 8 -m 0
+./build/server -p 9006 -s 4 -t 8 -m 0
 ```
 
 访问：
@@ -165,13 +175,13 @@ GET  /api/videos
 
 ## 安全说明
 
-- 不要提交 `smtp.env`、`run_server.local.sh` 等本地密钥配置文件
-- 不要提交编译产物 `server`
+- 不要提交 `config/local/smtp.env`、`scripts/run_server.local.sh` 等本地密钥配置文件
+- 不要提交编译产物 `build/server`
 - 用户密码已改为带盐哈希存储，旧明文密码登录成功后会自动迁移为哈希
 - SMTP 授权码泄露后应立即在邮箱服务商后台重新生成
 - 当前项目仍为学习/演示项目，生产环境还应补充 HTTPS、请求限流、日志脱敏、密码重置流程和更完整的输入校验
 
 ## 相关文档
 
-- [SMTP_SETUP.md](SMTP_SETUP.md)
-- [PASSWORD_HASHING.md](PASSWORD_HASHING.md)
+- [docs/SMTP_SETUP.md](docs/SMTP_SETUP.md)
+- [docs/PASSWORD_HASHING.md](docs/PASSWORD_HASHING.md)

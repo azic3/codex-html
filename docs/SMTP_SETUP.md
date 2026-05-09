@@ -43,13 +43,17 @@ make
 或手动编译：
 
 ```bash
-g++ -std=c++11 -pthread main.cpp config.cpp webserver.cpp http_conn.cpp threadpool.cpp CGmysql.cpp smtp_client.cpp password_hasher.cpp -lmysqlclient -lcurl -lcrypt -o server
+g++ -std=c++11 -pthread \
+  -Isrc/config -Isrc/server -Isrc/http -Isrc/threadpool -Isrc/db -Isrc/mail -Isrc/security \
+  src/main.cpp src/config/config.cpp src/server/webserver.cpp src/http/http_conn.cpp \
+  src/threadpool/threadpool.cpp src/db/CGmysql.cpp src/mail/smtp_client.cpp \
+  src/security/password_hasher.cpp -lmysqlclient -lcurl -lcrypt -o build/server
 ```
 
 ## 运行
 
 ```bash
-./server -p 9006 -s 4 -t 8 -m 0
+./build/server -p 9006 -s 4 -t 8 -m 0
 ```
 
 访问注册页，点击“获取验证码”后，验证码会发送到用户填写的邮箱。

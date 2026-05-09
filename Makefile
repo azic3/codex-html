@@ -3,19 +3,37 @@ CXXFLAGS ?= -std=c++11 -Wall -Wextra -pthread
 LDFLAGS ?= -pthread
 LDLIBS ?= -lmysqlclient -lcurl -lcrypt
 
-TARGET := server
-SOURCES := main.cpp config.cpp webserver.cpp http_conn.cpp threadpool.cpp CGmysql.cpp smtp_client.cpp password_hasher.cpp
-OBJECTS := $(SOURCES:.cpp=.o)
+TARGET := build/server
+SOURCES := \
+	src/main.cpp \
+	src/config/config.cpp \
+	src/server/webserver.cpp \
+	src/http/http_conn.cpp \
+	src/threadpool/threadpool.cpp \
+	src/db/CGmysql.cpp \
+	src/mail/smtp_client.cpp \
+	src/security/password_hasher.cpp
+OBJECTS := $(patsubst %.cpp,build/%.o,$(SOURCES))
+INCLUDES := \
+	-Isrc/config \
+	-Isrc/server \
+	-Isrc/http \
+	-Isrc/threadpool \
+	-Isrc/db \
+	-Isrc/mail \
+	-Isrc/security
 
 .PHONY: all clean rebuild
 
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
+	@mkdir -p $(dir $@)
 	$(CXX) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+build/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)

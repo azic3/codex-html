@@ -8,7 +8,7 @@
 *.sln.docstates
 
 # C++ build outputs
-server
+/server
 server.exe
 *.o
 *.obj
@@ -36,6 +36,13 @@ videos/*
 !videos/.gitkeep
 images/uploads/*
 !images/uploads/.gitkeep
+public/videos/*
+!public/videos/.gitkeep
+public/images/*
+!public/images/hero-pattern.svg
+!public/images/uploads/
+public/images/uploads/*
+!public/images/uploads/.gitkeep
 
 # Logs and temporary files
 *.log
@@ -49,3 +56,5 @@ Thumbs.db
 # Local secrets
 smtp.env
 run_server.local.sh
+config/local/
+scripts/run_server.local.sh

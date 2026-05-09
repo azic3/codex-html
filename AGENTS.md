@@ -11,32 +11,33 @@
 - 使用 MySQL 保存用户账号信息。
 - 使用 `alarm + SIGALRM + socketpair` 将定时器信号统一纳入 epoll 主循环，用于清理非活跃连接。
 
-项目根目录同时包含后端 C++ 源码、前端页面、CSS/JS 静态资源和图片资源。
+项目根目录按功能拆分：`src/` 放后端 C++ 源码，`public/` 放前端页面和静态资源，`docs/` 放补充文档，`scripts/` 放本地脚本，`config/local/` 放本地私密配置。
 
 ## 目录结构
 
 ```text
 .
-├── main.cpp              # 程序入口，初始化配置和 WebServer
-├── config.h/.cpp         # 命令行参数解析
-├── webserver.h/.cpp      # WebServer 主体：epoll、路由、静态文件、上传、定时器
-├── http_conn.h/.cpp      # HTTP 请求解析、URL 解码、响应序列化
-├── CGmysql.h/.cpp        # MySQL 连接池与用户表操作
-├── threadpool.h/.cpp     # 简单线程池
-├── index.html            # 静态演示首页
-├── login.html            # 登录、手机号注册、找回密码页面
-├── app.html              # 图片库页面
-├── video.html            # 视频库页面
-├── css/
-│   ├── app.css           # 图片/视频管理页样式
-│   └── login.css         # 登录注册页样式
-├── js/
-│   ├── app.js            # 图片列表加载、上传、预览弹窗
-│   ├── video.js          # 视频列表加载、上传
-│   └── login.js          # 登录、注册、邮箱验证码交互
-├── images/               # 内置图片资源与上传图片目录
-├── videos/               # 运行时可能创建；上传视频目录
-├── server                # 已编译出的 Linux 可执行文件
+├── src/
+│   ├── main.cpp          # 程序入口，初始化配置和 WebServer
+│   ├── config/           # 命令行参数解析
+│   ├── server/           # WebServer 主体：epoll、路由、静态文件、上传、定时器
+│   ├── http/             # HTTP 请求解析、URL 解码、响应序列化
+│   ├── db/               # MySQL 连接池与用户表操作
+│   ├── threadpool/       # 简单线程池
+│   ├── mail/             # SMTP 邮箱验证码发送
+│   └── security/         # 密码哈希与校验
+├── public/
+│   ├── index.html        # 静态演示首页
+│   ├── login.html        # 登录、手机号注册、找回密码页面
+│   ├── app.html          # 图片库页面
+│   ├── video.html        # 视频库页面
+│   ├── css/              # 页面样式
+│   ├── js/               # 前端交互
+│   └── images/           # 内置图片资源与上传图片目录
+├── docs/                 # SMTP、密码哈希等说明
+├── scripts/              # 本地启动脚本
+├── config/local/         # 本地密钥配置，不提交
+├── build/server          # 已编译出的 Linux 可执行文件
 └── .vs/                  # Visual Studio 本地缓存/索引，通常不要手动维护
 ```
 
@@ -85,7 +86,7 @@
 
 ### 网络与连接处理
 
-`webserver.cpp` 是核心文件：
+`src/server/webserver.cpp` 是核心文件：
 
 - `addfd()` 将 fd 加入 epoll，并设置非阻塞。
 - `modfd()` 修改 epoll 事件，并使用 `EPOLLONESHOT`。
@@ -148,7 +149,7 @@ GET  /api/videos
 - 图片允许：`png`、`jpg`、`jpeg`、`gif`、`bmp`、`webp`、`svg`。
 - 视频允许：`mp4`、`webm`、`ogg`、`mov`、`avi`、`mkv`、`m4v`。
 - 上传文件会经过文件名清理和唯一命名。
-- 图片保存到 `images/`，视频保存到 `videos/`。
+- 图片保存到 `public/images/`，视频保存到 `public/videos/`。
 
 ### 静态资源和目录
 
@@ -178,9 +179,9 @@ GET  /api/videos
 
 文件：
 
-- `login.html`
-- `css/login.css`
-- `js/login.js`
+- `public/login.html`
+- `public/css/login.css`
+- `public/js/login.js`
 
 功能：
 
@@ -194,9 +195,9 @@ GET  /api/videos
 
 文件：
 
-- `app.html`
-- `css/app.css`
-- `js/app.js`
+- `public/app.html`
+- `public/css/app.css`
+- `public/js/app.js`
 
 功能：
 
@@ -209,9 +210,9 @@ GET  /api/videos
 
 文件：
 
-- `video.html`
-- `css/app.css`
-- `js/video.js`
+- `public/video.html`
+- `public/css/app.css`
+- `public/js/video.js`
 
 功能：
 
@@ -232,13 +233,13 @@ GET  /api/videos
 参考编译命令：
 
 ```bash
-g++ -std=c++11 -pthread main.cpp config.cpp webserver.cpp http_conn.cpp threadpool.cpp CGmysql.cpp -lmysqlclient -o server
+make
 ```
 
 运行示例：
 
 ```bash
-./server -p 9006 -s 4 -t 8 -m 0
+./build/server -p 9006 -s 4 -t 8 -m 0
 ```
 
 然后访问：
@@ -258,7 +259,7 @@ http://localhost:9006/video.html
 - 部分终端读取 UTF-8 中文文件时可能显示乱码；浏览器按 `<meta charset="UTF-8">` 解析。
 - 邮箱验证码已接入真实 SMTP 发送；运行前需要配置 SMTP 环境变量。
 - `index.html` 是静态演示页，主入口当前更偏向 `login.html`。
-- `server` 是已编译二进制文件，改源码后需要重新编译才会生效。
+- `build/server` 是已编译二进制文件，改源码后需要重新编译才会生效。
 
 ## 后续开发建议
 
