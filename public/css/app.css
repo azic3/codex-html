@@ -317,16 +317,62 @@ input {
   line-height: 1.6;
 }
 
+.upload-message {
+  font-weight: 750;
+}
+
+.upload-progress {
+  height: 10px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e7edf3;
+}
+
+.upload-progress[aria-hidden="true"] {
+  display: none;
+}
+
+.upload-progress-bar {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.18s ease;
+}
+
+.upload-meta {
+  min-height: 20px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.upload-retry {
+  width: fit-content;
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 0 12px;
+}
+
 .upload-status.ok {
   border-color: #b8d8c6;
   background: #eff8f3;
   color: var(--success);
 }
 
+.upload-status.ok .upload-progress-bar {
+  background: var(--success);
+}
+
 .upload-status.err {
   border-color: #ecc1c6;
   background: #fff4f5;
   color: var(--danger);
+}
+
+.upload-status.err .upload-progress-bar {
+  background: var(--danger);
 }
 
 .gallery-grid,
@@ -348,8 +394,16 @@ input {
 
 .gallery-card {
   text-align: left;
-  cursor: pointer;
   transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.gallery-preview-btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .gallery-card:hover {
@@ -413,6 +467,29 @@ input {
   font-size: 12px;
   line-height: 1.45;
   word-break: break-all;
+}
+
+.gallery-download {
+  width: fit-content;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.gallery-download:hover,
+.gallery-download:focus-visible {
+  background: var(--accent);
+  color: #fff;
 }
 
 .gallery-empty {
@@ -518,7 +595,7 @@ input {
   }
 
   .app-nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .app-nav a {

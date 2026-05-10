@@ -86,7 +86,7 @@
 
       <section class="panel" id="panel-reset">
         <h1>找回密码</h1>
-        <p class="panel-sub">当前找回密码接口仍是占位版本，注册流程已经接入邮箱验证码。</p>
+        <p class="panel-sub">使用邮箱验证码确认本次操作，然后为手机号账号设置新密码。</p>
 
         <label class="field">
           <span>手机号</span>
@@ -94,11 +94,28 @@
         </label>
 
         <label class="field">
-          <span>验证码</span>
+          <span>邮箱</span>
+          <input type="email" id="reset-email" placeholder="请输入接收验证码的邮箱">
+        </label>
+
+        <label class="field">
+          <span>邮箱验证码</span>
           <div class="input-row">
-            <input type="text" id="reset-code" placeholder="请输入验证码">
+            <input type="text" id="reset-code" placeholder="请输入 6 位验证码">
             <button class="ghost-btn" type="button" id="send-code-btn">获取验证码</button>
           </div>
+        </label>
+
+        <label class="field password-field">
+          <span>新密码</span>
+          <input type="password" id="reset-password" placeholder="请输入新密码">
+          <button class="eye-btn" type="button" data-toggle-password="reset-password" aria-label="显示或隐藏新密码">👁</button>
+        </label>
+
+        <label class="field password-field">
+          <span>确认新密码</span>
+          <input type="password" id="reset-password-confirm" placeholder="请再次输入新密码">
+          <button class="eye-btn" type="button" data-toggle-password="reset-password-confirm" aria-label="显示或隐藏确认新密码">👁</button>
         </label>
 
         <button class="submit-btn secondary" type="button" id="reset-submit">重置密码</button>

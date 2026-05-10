@@ -22,6 +22,7 @@
         <a class="active" href="/video.html">视频库</a>
         <a href="/images/">图片目录</a>
         <a href="/videos/">视频目录</a>
+        <a href="/profile.html">个人中心</a>
         <a href="/login.html">退出登录</a>
       </nav>
     </aside>
@@ -51,7 +52,7 @@
         </div>
       </section>
 
-      <section class="upload-panel">
+      <section class="upload-panel" id="video-upload-panel" hidden>
         <div class="section-head compact">
           <div>
             <div class="eyebrow">Upload</div>
@@ -68,7 +69,14 @@
           <button class="action-btn upload-btn" type="submit" id="video-upload-submit">上传</button>
         </form>
 
-        <div class="upload-status" id="video-upload-status" aria-live="polite">等待选择视频。</div>
+        <div class="upload-status" id="video-upload-status" aria-live="polite">
+          <div class="upload-message" id="video-upload-message">等待选择视频。</div>
+          <div class="upload-progress" id="video-upload-progress" aria-hidden="true">
+            <div class="upload-progress-bar" id="video-upload-progress-bar"></div>
+          </div>
+          <div class="upload-meta" id="video-upload-meta"></div>
+          <button class="action-btn secondary upload-retry" type="button" id="video-upload-retry" hidden>重新上传</button>
+        </div>
       </section>
 
       <section class="gallery-panel">

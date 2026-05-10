@@ -92,6 +92,8 @@ private:
     HttpConn::Response handle_upload_video_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_list_images_api() const;
     HttpConn::Response handle_list_videos_api() const;
+    HttpConn::Response handle_current_user_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_logout_api(const HttpConn::Request &request) const;
     HttpConn::Response build_error_response(int status_code, const std::string &status_text, const std::string &body) const;
     HttpConn::Response build_response_with_body(int status_code,
                                                 const std::string &status_text,
@@ -123,6 +125,11 @@ private:
                              std::string &detail) const;
     bool validate_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
     bool register_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
+    bool reset_user_password_with_db(const std::string &username, const std::string &password, std::string &detail) const;
+    std::string create_session(const std::string &username, bool is_admin) const;
+    bool get_session(const HttpConn::Request &request, std::string &username, bool &is_admin) const;
+    void destroy_session(const HttpConn::Request &request) const;
+    bool current_user_is_admin(const HttpConn::Request &request) const;
     std::string generate_email_verification_code() const;
     void save_email_verification_code(const std::string &email, const std::string &code) const;
     bool verify_email_code(const std::string &email, const std::string &code, std::string &detail) const;
@@ -132,6 +139,13 @@ private:
     {
         std::string code;
         time_t expire;
+    };
+
+    struct UserSession
+    {
+        std::string username;
+        bool is_admin;
+        time_t created_at;
     };
 
     int m_port;
@@ -157,9 +171,11 @@ private:
     std::unordered_map<int, std::string> m_pending_requests;
     std::unordered_map<int, UtilTimer *> m_conn_timers;
     mutable std::unordered_map<std::string, EmailVerificationCode> m_email_codes;
+    mutable std::unordered_map<std::string, UserSession> m_sessions;
     mutable std::mutex m_pending_mutex;
     mutable std::mutex m_timer_mutex;
     mutable std::mutex m_email_code_mutex;
+    mutable std::mutex m_session_mutex;
     int m_pipefd[2];
     SortTimerList m_timer_list;
     epoll_event m_events[MAX_EVENT_NUMBER];

@@ -21,7 +21,7 @@
     });
 
     if (name === "reset") {
-      setStatus("找回密码当前是占位版本，注册页的邮箱验证码已经接入服务端。", "");
+      setStatus("请输入手机号、邮箱验证码和新密码完成密码重置。", "");
     } else {
       setStatus("", "");
     }
@@ -240,16 +240,100 @@
   });
 
   resetSubmit.addEventListener("click", function () {
-    fetch("/api/reset", { method: "POST" })
-      .then(function (response) { return response.json(); })
-      .then(function (data) { setStatus(data.message, "ok"); })
-      .catch(function () { setStatus("找回密码占位接口请求失败。", "err"); });
+    var phone = document.getElementById("reset-phone").value.trim();
+    var email = document.getElementById("reset-email").value.trim();
+    var code = document.getElementById("reset-code").value.trim();
+    var password = document.getElementById("reset-password").value;
+    var passwordConfirm = document.getElementById("reset-password-confirm").value;
+
+    if (!isValidPhone(phone)) {
+      setStatus("请输入正确的手机号。", "err");
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      setStatus("请输入正确的邮箱地址。", "err");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(code)) {
+      setStatus("请输入 6 位邮箱验证码。", "err");
+      return;
+    }
+
+    if (password.length < 4) {
+      setStatus("新密码至少需要 4 个字符。", "err");
+      return;
+    }
+
+    if (password !== passwordConfirm) {
+      setStatus("两次输入的新密码不一致。", "err");
+      return;
+    }
+
+    resetSubmit.disabled = true;
+    resetSubmit.textContent = "正在重置...";
+
+    var body = new URLSearchParams();
+    body.set("phone", phone);
+    body.set("email", email);
+    body.set("email_code", code);
+    body.set("password", password);
+
+    postForm("/api/reset", body)
+      .then(function (result) {
+        if (result.ok && result.data.ok) {
+          document.getElementById("reset-phone").value = "";
+          document.getElementById("reset-email").value = "";
+          document.getElementById("reset-code").value = "";
+          document.getElementById("reset-password").value = "";
+          document.getElementById("reset-password-confirm").value = "";
+          showPanel("login");
+          setStatus(result.data.message || "密码已重置，请使用新密码登录。", "ok");
+          return;
+        }
+
+        setStatus(result.data.message || "密码重置失败。", "err");
+      })
+      .catch(function () {
+        setStatus("密码重置请求失败，请确认服务端已经启动。", "err");
+      })
+      .finally(function () {
+        resetSubmit.disabled = false;
+        resetSubmit.textContent = "重置密码";
+      });
   });
 
   sendCodeBtn.addEventListener("click", function () {
-    setStatus("找回密码验证码仍是占位功能。", "ok");
-    countdown(sendCodeBtn);
+    var email = document.getElementById("reset-email").value.trim();
+
+    if (!isValidEmail(email)) {
+      setStatus("请先输入正确的邮箱地址。", "err");
+      return;
+    }
+
+    sendCodeBtn.disabled = true;
+    setStatus("正在发送找回密码验证码...", "");
+
+    var body = new URLSearchParams();
+    body.set("email", email);
+
+    postForm("/api/send-email-code", body)
+      .then(function (result) {
+        if (result.ok && result.data.ok) {
+          setStatus(result.data.message || "验证码已发送，请查看邮箱。", "ok");
+          countdown(sendCodeBtn);
+          return;
+        }
+
+        sendCodeBtn.disabled = false;
+        setStatus(result.data.message || "验证码发送失败。", "err");
+      })
+      .catch(function () {
+        sendCodeBtn.disabled = false;
+        setStatus("验证码请求失败，请确认服务端已经启动。", "err");
+      });
   });
 
-  setStatus("手机号注册已接入邮箱验证码。演示账号：admin / 12345", "");
+  setStatus("手机号注册和找回密码已接入邮箱验证码。演示账号：admin / 12345", "");
 })();

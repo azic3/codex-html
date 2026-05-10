@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <sstream>
@@ -28,6 +29,7 @@ const int kConnectionTimeout = 3 * TIMESLOT;
 const int kEmailCodeTimeout = 5 * 60;
 const std::size_t kMaxImageUploadSize = 20 * 1024 * 1024;
 const std::size_t kMaxVideoUploadSize = 1024ULL * 1024 * 1024;
+const char *kSessionCookieName = "XIAOCHEN_SESSION";
 int g_signal_pipefd[2] = {-1, -1};
 
 int set_nonblocking(int fd)
@@ -190,6 +192,46 @@ std::string json_escape(const std::string &value)
         }
     }
     return escaped;
+}
+
+std::string random_session_token()
+{
+    std::ostringstream token;
+    token << std::hex << std::setfill('0');
+    for (int i = 0; i < 8; ++i)
+    {
+        token << std::setw(8) << static_cast<unsigned int>(std::rand());
+    }
+    token << std::setw(8) << static_cast<unsigned int>(time(nullptr));
+    return token.str();
+}
+
+std::string cookie_value(const std::string &cookie_header, const std::string &name)
+{
+    std::size_t start = 0;
+    while (start < cookie_header.size())
+    {
+        while (start < cookie_header.size() && (cookie_header[start] == ' ' || cookie_header[start] == ';'))
+        {
+            ++start;
+        }
+
+        const std::size_t end = cookie_header.find(';', start);
+        const std::string pair = cookie_header.substr(start, end == std::string::npos ? std::string::npos : end - start);
+        const std::size_t equals = pair.find('=');
+        if (equals != std::string::npos && pair.substr(0, equals) == name)
+        {
+            return pair.substr(equals + 1);
+        }
+
+        if (end == std::string::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+
+    return std::string();
 }
 
 bool request_is_complete(const std::string &request_text)
@@ -1178,6 +1220,110 @@ bool WebServer::register_user_with_db(const std::string &username,
     return true;
 }
 
+bool WebServer::reset_user_password_with_db(const std::string &username,
+                                            const std::string &password,
+                                            std::string &detail) const
+{
+    if (username.empty() || password.empty())
+    {
+        detail = "username or password is empty";
+        return false;
+    }
+
+    if (!m_db_pool.available())
+    {
+        detail = m_db_pool.last_error();
+        return false;
+    }
+
+    bool exists = false;
+    if (!m_db_pool.user_exists(username, exists))
+    {
+        detail = m_db_pool.last_error();
+        return false;
+    }
+
+    if (!exists)
+    {
+        detail = "phone number was not registered";
+        return false;
+    }
+
+    std::string hashed_password;
+    if (!PasswordHasher::hash_password(password, hashed_password, detail))
+    {
+        return false;
+    }
+
+    if (!m_db_pool.update_user_password(username, hashed_password))
+    {
+        detail = m_db_pool.last_error();
+        return false;
+    }
+
+    detail.clear();
+    return true;
+}
+
+std::string WebServer::create_session(const std::string &username, bool is_admin) const
+{
+    UserSession session;
+    session.username = username;
+    session.is_admin = is_admin;
+    session.created_at = time(nullptr);
+
+    std::unique_lock<std::mutex> lock(m_session_mutex);
+    std::string token;
+    do
+    {
+        token = random_session_token();
+    } while (m_sessions.find(token) != m_sessions.end());
+
+    m_sessions[token] = session;
+    return token;
+}
+
+bool WebServer::get_session(const HttpConn::Request &request, std::string &username, bool &is_admin) const
+{
+    const std::string cookie_header = get_header_value(request, "Cookie");
+    const std::string token = cookie_value(cookie_header, kSessionCookieName);
+    if (token.empty())
+    {
+        return false;
+    }
+
+    std::unique_lock<std::mutex> lock(m_session_mutex);
+    std::unordered_map<std::string, UserSession>::const_iterator it = m_sessions.find(token);
+    if (it == m_sessions.end())
+    {
+        return false;
+    }
+
+    username = it->second.username;
+    is_admin = it->second.is_admin;
+    return true;
+}
+
+void WebServer::destroy_session(const HttpConn::Request &request) const
+{
+    const std::string cookie_header = get_header_value(request, "Cookie");
+    const std::string token = cookie_value(cookie_header, kSessionCookieName);
+    if (token.empty())
+    {
+        return;
+    }
+
+    std::unique_lock<std::mutex> lock(m_session_mutex);
+    m_sessions.erase(token);
+}
+
+bool WebServer::current_user_is_admin(const HttpConn::Request &request) const
+{
+    std::string username;
+    bool is_admin = false;
+    return get_session(request, username, is_admin) && is_admin;
+}
+
 std::string WebServer::generate_email_verification_code() const
 {
     const int value = 100000 + std::rand() % 900000;
@@ -1653,6 +1799,14 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
 
 HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request) const
 {
+    if (!current_user_is_admin(request))
+    {
+        return build_response_with_body(403,
+                                        "Forbidden",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"only admin can upload images\"}");
+    }
+
     std::string saved_path;
     std::string detail;
     if (!save_uploaded_image(request, saved_path, detail))
@@ -1673,6 +1827,14 @@ HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request
 
 HttpConn::Response WebServer::handle_upload_video_api(const HttpConn::Request &request) const
 {
+    if (!current_user_is_admin(request))
+    {
+        return build_response_with_body(403,
+                                        "Forbidden",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"only admin can upload videos\"}");
+    }
+
     std::string saved_path;
     std::string detail;
     if (!save_uploaded_media(request, "videos", "video", false, saved_path, detail))
@@ -1707,6 +1869,39 @@ HttpConn::Response WebServer::handle_list_videos_api() const
                                     build_videos_json());
 }
 
+HttpConn::Response WebServer::handle_current_user_api(const HttpConn::Request &request) const
+{
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_response_with_body(401,
+                                        "Unauthorized",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"not logged in\",\"redirect\":\"/login.html\"}");
+    }
+
+    std::ostringstream body;
+    body << "{"
+         << "\"ok\":true,"
+         << "\"username\":\"" << json_escape(username) << "\","
+         << "\"role\":\"" << (is_admin ? "admin" : "user") << "\""
+         << "}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_logout_api(const HttpConn::Request &request) const
+{
+    destroy_session(request);
+
+    HttpConn::Response response = build_response_with_body(200,
+                                                           "OK",
+                                                           "application/json; charset=utf-8",
+                                                           "{\"ok\":true,\"message\":\"logout success\",\"redirect\":\"/login.html\"}");
+    response.headers["Set-Cookie"] = std::string(kSessionCookieName) + "=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0";
+    return response;
+}
+
 HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request) const
 {
     const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
@@ -1714,31 +1909,41 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
     const std::string password = form.count("password") ? form.find("password")->second : "";
     const bool remember = form.count("remember") && form.find("remember")->second == "on";
 
+    if (username == "admin" && password == "12345")
+    {
+        const std::string token = create_session(username, true);
+        std::ostringstream body;
+        body << "{"
+             << "\"ok\":true,"
+             << "\"message\":\"admin login success\","
+             << "\"redirect\":\"/app.html\","
+             << "\"remember\":" << (remember ? "true" : "false") << ","
+             << "\"username\":\"" << json_escape(username) << "\","
+             << "\"role\":\"admin\","
+             << "\"source\":\"fallback\""
+             << "}";
+        HttpConn::Response response = build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+        response.headers["Set-Cookie"] = std::string(kSessionCookieName) + "=" + token + "; HttpOnly; Path=/; SameSite=Lax";
+        return response;
+    }
+
     std::string db_detail;
     if (validate_user_with_db(username, password, db_detail))
     {
+        const std::string token = create_session(username, false);
         std::ostringstream body;
         body << "{"
              << "\"ok\":true,"
              << "\"message\":\"database login success\","
              << "\"redirect\":\"/app.html\","
              << "\"remember\":" << (remember ? "true" : "false") << ","
+             << "\"username\":\"" << json_escape(username) << "\","
+             << "\"role\":\"user\","
              << "\"source\":\"mysql\""
              << "}";
-        return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
-    }
-
-    if (username == "admin" && password == "12345")
-    {
-        std::ostringstream body;
-        body << "{"
-             << "\"ok\":true,"
-             << "\"message\":\"fallback login success\","
-             << "\"redirect\":\"/app.html\","
-             << "\"remember\":" << (remember ? "true" : "false") << ","
-             << "\"source\":\"fallback\""
-             << "}";
-        return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+        HttpConn::Response response = build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+        response.headers["Set-Cookie"] = std::string(kSessionCookieName) + "=" + token + "; HttpOnly; Path=/; SameSite=Lax";
+        return response;
     }
 
     const std::string message = db_detail.empty() ? "username or password is invalid"
@@ -1848,11 +2053,86 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
 
 HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request) const
 {
-    (void)request;
+    const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
+    const std::string phone = form.count("phone") ? form.find("phone")->second : "";
+    const std::string email = form.count("email") ? form.find("email")->second : "";
+    const std::string email_code = form.count("email_code") ? form.find("email_code")->second : "";
+    const std::string password = form.count("password") ? form.find("password")->second : "";
+    std::string detail;
+
+    if (!is_valid_phone(phone))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"phone number is invalid\"}");
+    }
+
+    if (!is_valid_email(email))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"email is invalid\"}");
+    }
+
+    if (password.size() < 4)
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"password must be at least 4 characters\"}");
+    }
+
+    if (!m_db_pool.available())
+    {
+        detail = m_db_pool.last_error();
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
+    bool exists = false;
+    if (!m_db_pool.user_exists(phone, exists))
+    {
+        detail = m_db_pool.last_error();
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
+    if (!exists)
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"phone number was not registered\"}");
+    }
+
+    if (!verify_email_code(email, email_code, detail))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
+    if (!reset_user_password_with_db(phone, password, detail))
+    {
+        const int status = detail == "phone number was not registered" ? 404 : 500;
+        const std::string status_text = detail == "phone number was not registered" ? "Not Found" : "Internal Server Error";
+        return build_response_with_body(status,
+                                        status_text,
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    "{\"ok\":true,\"message\":\"reset API placeholder is connected; next step is verification logic.\"}");
+                                    "{\"ok\":true,\"message\":\"password reset success, please log in with your new password\"}");
 }
 
 HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) const
@@ -1877,6 +2157,14 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     if (request.method == "POST" && request.path == "/api/reset")
     {
         return handle_reset_api(request);
+    }
+    if (request.method == "GET" && request.path == "/api/me")
+    {
+        return handle_current_user_api(request);
+    }
+    if (request.method == "POST" && request.path == "/api/logout")
+    {
+        return handle_logout_api(request);
     }
     if (request.method == "POST" && request.path == "/api/upload")
     {

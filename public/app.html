@@ -22,6 +22,7 @@
         <a href="/video.html">视频库</a>
         <a href="/images/">图片目录</a>
         <a href="/videos/">视频目录</a>
+        <a href="/profile.html">个人中心</a>
         <a href="/login.html">退出登录</a>
       </nav>
     </aside>
@@ -47,7 +48,7 @@
         <img src="/images/凡人修仙_001.png" alt="图片预览" id="hero-preview">
       </section>
 
-      <section class="upload-panel">
+      <section class="upload-panel" id="upload-panel" hidden>
         <div class="section-head compact">
           <div>
             <div class="eyebrow">Upload</div>
@@ -64,7 +65,14 @@
           <button class="action-btn upload-btn" type="submit" id="upload-submit">上传</button>
         </form>
 
-        <div class="upload-status" id="upload-status" aria-live="polite">等待选择图片。</div>
+        <div class="upload-status" id="upload-status" aria-live="polite">
+          <div class="upload-message" id="upload-message">等待选择图片。</div>
+          <div class="upload-progress" id="upload-progress" aria-hidden="true">
+            <div class="upload-progress-bar" id="upload-progress-bar"></div>
+          </div>
+          <div class="upload-meta" id="upload-meta"></div>
+          <button class="action-btn secondary upload-retry" type="button" id="upload-retry" hidden>重新上传</button>
+        </div>
       </section>
 
       <section class="gallery-panel">
@@ -82,15 +90,18 @@
   </div>
 
   <template id="gallery-card-template">
-    <button class="gallery-card" type="button">
-      <span class="gallery-thumb">
-        <img src="" alt="">
-      </span>
+    <article class="gallery-card">
+      <button class="gallery-preview-btn" type="button">
+        <span class="gallery-thumb">
+          <img src="" alt="">
+        </span>
+      </button>
       <span class="gallery-copy">
         <strong></strong>
         <span></span>
+        <a class="gallery-download" href="#" download>下载图片</a>
       </span>
-    </button>
+    </article>
   </template>
 
   <div class="lightbox" id="lightbox" aria-hidden="true">
