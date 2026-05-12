@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "CGmysql.h"
+#include "app_logger.h"
 #include "http_conn.h"
 #include "password_hasher.h"
 #include "smtp_client.h"

@@ -11,6 +11,8 @@
   var uploadForm = document.getElementById("upload-form");
   var uploadInput = document.getElementById("upload-image");
   var uploadSubmit = document.getElementById("upload-submit");
+  var uploadTrigger = document.getElementById("image-upload-trigger");
+  var dropZone = document.getElementById("image-drop-zone");
   var uploadStatus = document.getElementById("upload-status");
   var uploadMessage = document.getElementById("upload-message");
   var uploadProgress = document.getElementById("upload-progress");
@@ -18,9 +20,24 @@
   var uploadMeta = document.getElementById("upload-meta");
   var uploadRetry = document.getElementById("upload-retry");
   var heroPreview = document.getElementById("hero-preview");
+  var heroPlaceholder = document.getElementById("hero-placeholder");
+  var searchInput = document.getElementById("image-search-input");
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".video-chip"));
+  var viewBtns = Array.prototype.slice.call(document.querySelectorAll(".video-view-toggle button"));
+  var countNode = document.getElementById("image-count");
+  var heroCountNode = document.getElementById("hero-image-count");
+  var heroSizeNode = document.getElementById("hero-image-size");
+  var heroFormatNode = document.getElementById("hero-main-format");
+  var totalCountNode = document.getElementById("image-total-count");
+  var totalSizeNode = document.getElementById("image-total-size");
+  var pngCountNode = document.getElementById("image-png-count");
+  var averageWidthNode = document.getElementById("image-average-width");
+
   var galleryItems = [];
   var lastUploadFile = null;
   var canUpload = false;
+  var activeFilter = "all";
+  var imageMetaByUrl = {};
 
   function openPreview(src, title) {
     lightboxImage.src = src;
@@ -37,6 +54,9 @@
   }
 
   function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) {
+      return "--";
+    }
     if (bytes >= 1024 * 1024) {
       return (bytes / 1024 / 1024).toFixed(1) + "MB";
     }
@@ -46,10 +66,22 @@
     return bytes + "B";
   }
 
+  function fileExt(name) {
+    var match = String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+    if (!match) {
+      return "image";
+    }
+    return match[1] === "jpeg" ? "jpg" : match[1];
+  }
+
   function getDownloadName(item) {
     var source = item.path || item.url || item.title || "image";
     var name = source.split("/").pop() || item.title || "image";
-    return decodeURIComponent(name);
+    try {
+      return decodeURIComponent(name);
+    } catch (error) {
+      return name;
+    }
   }
 
   function setUploadStatus(text, state, options) {
@@ -90,21 +122,19 @@
       })
       .then(function (user) {
         canUpload = !!(user && user.ok && user.role === "admin");
-        if (uploadPanel) {
-          uploadPanel.hidden = !canUpload;
-        }
+        uploadPanel.hidden = !canUpload;
+        uploadTrigger.hidden = !canUpload;
       })
       .catch(function () {
         canUpload = false;
-        if (uploadPanel) {
-          uploadPanel.hidden = true;
-        }
+        uploadPanel.hidden = true;
+        uploadTrigger.hidden = true;
       });
   }
 
   function uploadFile(file) {
     if (!canUpload) {
-      setUploadStatus("only admin can upload images", "err");
+      setUploadStatus("只有管理员可以上传图片。", "err");
       return;
     }
 
@@ -138,8 +168,7 @@
     xhr.addEventListener("load", function () {
       var data = parseUploadResponse(xhr);
       if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
-        var message = data.message || "上传失败，请检查文件格式、大小或网络连接后重试。";
-        setUploadStatus(message, "err", {
+        setUploadStatus(data.message || "上传失败，请检查文件格式、大小或网络连接后重试。", "err", {
           progress: 100,
           meta: "文件仍保留在选择框中，可以直接重新上传。",
           canRetry: true
@@ -182,44 +211,110 @@
     xhr.send(formData);
   }
 
-  function renderGallery(items) {
-    galleryGrid.innerHTML = "";
-    galleryItems = items.slice();
+  function filteredImages() {
+    var query = searchInput.value.trim().toLowerCase();
+    return galleryItems.filter(function (item) {
+      var title = String(item.title || "").toLowerCase();
+      var ext = fileExt(item.title || item.url);
+      var matchesFilter = activeFilter === "all" || ext === activeFilter;
+      var matchesSearch = !query || title.indexOf(query) !== -1;
+      return matchesFilter && matchesSearch;
+    });
+  }
 
-    if (!galleryItems.length) {
-      galleryGrid.innerHTML = '<div class="gallery-empty">图片库为空。</div>';
+  function updateStats(items) {
+    var bytes = items.reduce(function (sum, item) {
+      return sum + (Number(item.size) || 0);
+    }, 0);
+    var pngCount = items.filter(function (item) {
+      return fileExt(item.title || item.url) === "png";
+    }).length;
+    var knownWidths = items.map(function (item) {
+      return imageMetaByUrl[item.url] && imageMetaByUrl[item.url].width;
+    }).filter(Boolean);
+    var averageWidth = knownWidths.length
+      ? Math.round(knownWidths.reduce(function (sum, value) { return sum + value; }, 0) / knownWidths.length) + "px"
+      : "--";
+    var firstFormat = items[0] ? fileExt(items[0].title || items[0].url).toUpperCase() : "--";
+
+    countNode.textContent = items.length;
+    heroCountNode.textContent = items.length;
+    totalCountNode.textContent = items.length;
+    heroSizeNode.textContent = bytes ? formatFileSize(bytes) : "--";
+    totalSizeNode.textContent = bytes ? formatFileSize(bytes) : "--";
+    pngCountNode.textContent = pngCount;
+    averageWidthNode.textContent = averageWidth;
+    heroFormatNode.textContent = firstFormat;
+  }
+
+  function renderGallery() {
+    var items = filteredImages();
+    galleryGrid.innerHTML = "";
+    updateStats(items);
+
+    if (!items.length) {
+      galleryGrid.innerHTML = '<div class="gallery-empty">没有找到匹配的图片。</div>';
+      heroPreview.removeAttribute("src");
+      heroPlaceholder.hidden = false;
       return;
     }
 
-    heroPreview.src = galleryItems[0].url;
+    heroPreview.src = items[0].url;
+    heroPreview.alt = items[0].title || "图片预览";
+    heroPlaceholder.hidden = true;
 
-    galleryItems.forEach(function (item, index) {
+    items.forEach(function (item, index) {
       var fragment = template.content.cloneNode(true);
-      var card = fragment.querySelector(".gallery-card");
-      var previewButton = fragment.querySelector(".gallery-preview-btn");
       var image = fragment.querySelector("img");
-      var title = fragment.querySelector("strong");
-      var path = fragment.querySelector(".gallery-copy span");
-      var download = fragment.querySelector(".gallery-download");
-
-      card.setAttribute("data-full", item.url);
-      card.setAttribute("data-title", item.title);
-      if (index % 4 === 1) {
-        card.classList.add("tall");
-      }
-      if (index % 4 === 3) {
-        card.classList.add("accent");
-      }
+      var title = fragment.querySelector(".redesign-image-name");
+      var path = fragment.querySelector(".redesign-image-path");
+      var size = fragment.querySelector(".redesign-image-size");
+      var format = fragment.querySelector(".img-fmt");
+      var isNew = fragment.querySelector(".img-new");
+      var resolution = fragment.querySelector(".img-resolution");
+      var previewButton = fragment.querySelector(".preview-action");
+      var copyButton = fragment.querySelector(".copy-action");
+      var downloadButtons = fragment.querySelectorAll(".download-action, .image-mini-action");
+      var ext = fileExt(item.title || item.url).toUpperCase();
 
       image.src = item.url;
-      image.alt = item.title;
-      title.textContent = item.title;
+      image.alt = item.title || "";
+      title.textContent = item.title || item.url;
       path.textContent = item.path || item.url;
-      download.href = item.url;
-      download.download = getDownloadName(item);
+      size.textContent = formatFileSize(item.size);
+      format.textContent = ext;
+      isNew.hidden = index > 1;
+      resolution.textContent = imageMetaByUrl[item.url]
+        ? imageMetaByUrl[item.url].width + "x" + imageMetaByUrl[item.url].height
+        : "--";
+
+      downloadButtons.forEach(function (button) {
+        button.href = item.url;
+        button.download = getDownloadName(item);
+      });
 
       previewButton.addEventListener("click", function () {
-        openPreview(item.url, item.title);
+        openPreview(item.url, item.title || item.url);
+      });
+
+      copyButton.addEventListener("click", function () {
+        var value = item.path || item.url;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value);
+        }
+        copyButton.textContent = "已复制";
+        window.setTimeout(function () {
+          copyButton.textContent = "复制";
+        }, 1200);
+      });
+
+      image.addEventListener("load", function () {
+        imageMetaByUrl[item.url] = {
+          width: image.naturalWidth,
+          height: image.naturalHeight
+        };
+        resolution.textContent = image.naturalWidth + "x" + image.naturalHeight;
+        updateStats(filteredImages());
       });
 
       galleryGrid.appendChild(fragment);
@@ -235,11 +330,26 @@
         return response.json();
       })
       .then(function (items) {
-        renderGallery(Array.isArray(items) ? items : []);
+        galleryItems = Array.isArray(items) ? items : [];
+        renderGallery();
       })
       .catch(function () {
         galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败，请刷新页面或确认服务正在运行。</div>';
+        updateStats([]);
       });
+  }
+
+  function chooseFile(file) {
+    if (!file) {
+      lastUploadFile = null;
+      setUploadStatus("等待选择图片。");
+      return;
+    }
+
+    lastUploadFile = file;
+    setUploadStatus("已选择图片，准备上传。", "", {
+      meta: lastUploadFile.name + " · " + formatFileSize(lastUploadFile.size)
+    });
   }
 
   closeButton.addEventListener("click", closePreview);
@@ -257,23 +367,19 @@
   });
 
   openFirstButton.addEventListener("click", function () {
-    if (!galleryItems.length) {
+    var items = filteredImages();
+    if (!items.length) {
       return;
     }
-    openPreview(galleryItems[0].url, galleryItems[0].title);
+    openPreview(items[0].url, items[0].title || items[0].url);
+  });
+
+  uploadTrigger.addEventListener("click", function () {
+    uploadInput.click();
   });
 
   uploadInput.addEventListener("change", function () {
-    if (!uploadInput.files || !uploadInput.files[0]) {
-      lastUploadFile = null;
-      setUploadStatus("等待选择图片。");
-      return;
-    }
-
-    lastUploadFile = uploadInput.files[0];
-    setUploadStatus("已选择图片，准备上传。", "", {
-      meta: lastUploadFile.name + " · " + formatFileSize(lastUploadFile.size)
-    });
+    chooseFile(uploadInput.files && uploadInput.files[0]);
   });
 
   uploadRetry.addEventListener("click", function () {
@@ -286,16 +392,18 @@
     event.preventDefault();
 
     if (!canUpload) {
-      setUploadStatus("only admin can upload images", "err");
+      setUploadStatus("只有管理员可以上传图片。", "err");
       return;
     }
 
-    if (!uploadInput.files || !uploadInput.files[0]) {
+    if (!lastUploadFile && uploadInput.files && uploadInput.files[0]) {
+      lastUploadFile = uploadInput.files[0];
+    }
+
+    if (!lastUploadFile) {
       setUploadStatus("请先选择一张图片。", "err");
       return;
     }
-
-    lastUploadFile = uploadInput.files[0];
 
     if (lastUploadFile.size > 20 * 1024 * 1024) {
       setUploadStatus("图片不能超过 20MB，请压缩后再上传。", "err", {
@@ -306,6 +414,51 @@
 
     uploadFile(lastUploadFile);
   });
+
+  ["dragenter", "dragover"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.add("dragging");
+    });
+  });
+
+  ["dragleave", "drop"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.remove("dragging");
+    });
+  });
+
+  dropZone.addEventListener("drop", function (event) {
+    var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) {
+      uploadInput.files = event.dataTransfer.files;
+      chooseFile(file);
+    }
+  });
+
+  chips.forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      chips.forEach(function (item) {
+        item.classList.remove("active");
+      });
+      chip.classList.add("active");
+      activeFilter = chip.dataset.filter || "all";
+      renderGallery();
+    });
+  });
+
+  viewBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      viewBtns.forEach(function (item) {
+        item.classList.remove("active");
+      });
+      btn.classList.add("active");
+      galleryGrid.classList.toggle("list-view", btn.dataset.view === "list");
+    });
+  });
+
+  searchInput.addEventListener("input", renderGallery);
 
   loadCurrentUser().then(loadImages);
 })();

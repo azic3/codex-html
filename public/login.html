@@ -1,37 +1,48 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>XIAOCHEN - 登录</title>
   <link rel="stylesheet" href="/css/login.css">
 </head>
-
 <body>
+  <div class="login-bg" aria-hidden="true"></div>
+  <div class="login-particles" id="login-particles" aria-hidden="true"></div>
+
   <main class="login-page">
+    <div class="login-ornament">· 修 仙 之 路 ·</div>
+    <div class="ornament-line" aria-hidden="true">
+      <hr><span></span><hr>
+    </div>
+
     <section class="login-card">
+      <span class="corner corner-tl"></span>
+      <span class="corner corner-tr"></span>
+      <span class="corner corner-bl"></span>
+      <span class="corner corner-br"></span>
+
       <div class="panel-switch" aria-label="登录操作切换">
-        <button class="switch-btn active" type="button" data-panel="login">登录</button>
-        <button class="switch-btn" type="button" data-panel="register">注册</button>
+        <button class="switch-btn active" type="button" data-panel="login">登 录</button>
+        <button class="switch-btn" type="button" data-panel="register">注 册</button>
         <button class="switch-btn" type="button" data-panel="reset">找回密码</button>
       </div>
 
       <section class="panel active" id="panel-login">
         <h1>欢迎回来</h1>
-        <p class="panel-sub">登录你的账号，继续浏览和创作。</p>
+        <p class="panel-sub">登录你的账号，继续浏览和创作</p>
 
         <form id="login-form">
           <label class="field">
             <span>手机号</span>
-            <input type="text" id="login-user" name="username" placeholder="请输入手机号">
+            <input type="text" id="login-user" name="username" placeholder="请输入手机号或管理员账号" autocomplete="username">
           </label>
 
           <label class="field">
             <span>密码</span>
             <div class="input-row">
-              <input type="password" id="login-pwd" name="password" placeholder="请输入密码">
-              <button class="ghost-btn" type="button" data-toggle="login-pwd">显示</button>
+              <input type="password" id="login-pwd" name="password" placeholder="请输入密码" autocomplete="current-password">
+              <button class="ghost-btn btn-show" type="button" data-toggle="login-pwd">显示</button>
             </div>
           </label>
 
@@ -40,85 +51,89 @@
               <input type="checkbox" id="remember-me" name="remember">
               <span>记住我</span>
             </label>
-            <button class="text-btn" type="button" data-panel-jump="reset">忘记密码?</button>
+            <button class="text-btn" type="button" data-panel-jump="reset">忘记密码？</button>
           </div>
 
-          <button class="submit-btn" type="submit" id="login-submit">登录</button>
+          <button class="submit-btn" type="submit" id="login-submit">登 录</button>
         </form>
       </section>
 
       <section class="panel" id="panel-register">
         <h1>手机号注册</h1>
-        <p class="panel-sub">使用手机号作为登录账号，邮箱验证码用于确认本次注册。</p>
+        <p class="panel-sub">使用手机号作为登录账号，邮箱验证码用于确认本次注册</p>
 
         <form id="register-form">
           <label class="field">
             <span>手机号</span>
-            <input type="text" id="register-phone" name="phone" placeholder="请输入 11 位手机号">
+            <input type="text" id="register-phone" name="phone" placeholder="请输入 11 位手机号" autocomplete="tel">
           </label>
 
           <label class="field">
             <span>邮箱</span>
-            <input type="email" id="register-email" name="email" placeholder="请输入接收验证码的邮箱">
+            <input type="email" id="register-email" name="email" placeholder="请输入接收验证码的邮箱" autocomplete="email">
           </label>
 
           <label class="field">
             <span>邮箱验证码</span>
             <div class="input-row">
-              <input type="text" id="register-email-code" name="email_code" placeholder="请输入 6 位验证码">
+              <input type="text" id="register-email-code" name="email_code" placeholder="请输入 6 位验证码" inputmode="numeric">
               <button class="ghost-btn" type="button" id="register-send-code-btn">获取验证码</button>
             </div>
           </label>
 
           <label class="field">
             <span>密码</span>
-            <input type="password" id="register-pwd" name="password" placeholder="请输入密码">
+            <input type="password" id="register-pwd" name="password" placeholder="请输入密码" autocomplete="new-password">
           </label>
 
           <label class="field">
             <span>确认密码</span>
-            <input type="password" id="register-pwd-confirm" name="password_confirm" placeholder="请再次输入密码">
+            <input type="password" id="register-pwd-confirm" name="password_confirm" placeholder="请再次输入密码" autocomplete="new-password">
           </label>
 
-          <button class="submit-btn secondary" type="submit" id="register-submit">完成注册</button>
+          <button class="submit-btn" type="submit" id="register-submit">完成注册</button>
         </form>
       </section>
 
       <section class="panel" id="panel-reset">
         <h1>找回密码</h1>
-        <p class="panel-sub">使用邮箱验证码确认本次操作，然后为手机号账号设置新密码。</p>
+        <p class="panel-sub">通过邮箱验证码确认操作，然后为手机号账号设置新密码</p>
 
         <label class="field">
           <span>手机号</span>
-          <input type="text" id="reset-phone" placeholder="请输入已绑定手机号">
+          <input type="text" id="reset-phone" placeholder="请输入已注册手机号" autocomplete="tel">
         </label>
 
         <label class="field">
           <span>邮箱</span>
-          <input type="email" id="reset-email" placeholder="请输入接收验证码的邮箱">
+          <input type="email" id="reset-email" placeholder="请输入接收验证码的邮箱" autocomplete="email">
         </label>
 
         <label class="field">
           <span>邮箱验证码</span>
           <div class="input-row">
-            <input type="text" id="reset-code" placeholder="请输入 6 位验证码">
+            <input type="text" id="reset-code" placeholder="请输入 6 位验证码" inputmode="numeric">
             <button class="ghost-btn" type="button" id="send-code-btn">获取验证码</button>
           </div>
         </label>
 
-        <label class="field password-field">
+        <label class="field">
           <span>新密码</span>
-          <input type="password" id="reset-password" placeholder="请输入新密码">
-          <button class="eye-btn" type="button" data-toggle-password="reset-password" aria-label="显示或隐藏新密码">👁</button>
+          <div class="input-row">
+            <input type="password" id="reset-password" placeholder="请输入新密码" autocomplete="new-password">
+            <button class="ghost-btn btn-show" type="button" data-toggle-password="reset-password">显示</button>
+          </div>
         </label>
 
-        <label class="field password-field">
+        <label class="field">
           <span>确认新密码</span>
-          <input type="password" id="reset-password-confirm" placeholder="请再次输入新密码">
-          <button class="eye-btn" type="button" data-toggle-password="reset-password-confirm" aria-label="显示或隐藏确认新密码">👁</button>
+          <div class="input-row">
+            <input type="password" id="reset-password-confirm" placeholder="请再次输入新密码" autocomplete="new-password">
+            <button class="ghost-btn btn-show" type="button" data-toggle-password="reset-password-confirm">显示</button>
+          </div>
         </label>
 
-        <button class="submit-btn secondary" type="button" id="reset-submit">重置密码</button>
+        <button class="submit-btn" type="button" id="reset-submit">重置密码</button>
       </section>
 
       <div class="status-box" id="status-box" aria-live="polite"></div>
@@ -127,5 +142,4 @@
 
   <script src="/js/login.js"></script>
 </body>
-
 </html>

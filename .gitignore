@@ -45,6 +45,8 @@ public/images/uploads/*
 !public/images/uploads/.gitkeep
 
 # Logs and temporary files
+logs/*
+!logs/.gitkeep
 *.log
 *.tmp
 *.temp

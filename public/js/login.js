@@ -10,6 +10,24 @@
   var resetSubmit = document.getElementById("reset-submit");
   var sendCodeBtn = document.getElementById("send-code-btn");
   var registerSendCodeBtn = document.getElementById("register-send-code-btn");
+  var particles = document.getElementById("login-particles");
+
+  function createParticles() {
+    if (!particles) {
+      return;
+    }
+
+    for (var i = 0; i < 18; i += 1) {
+      var particle = document.createElement("span");
+      particle.className = "particle";
+      particle.style.left = Math.random() * 100 + "vw";
+      particle.style.animationDuration = 8 + Math.random() * 12 + "s";
+      particle.style.animationDelay = Math.random() * 10 + "s";
+      particle.style.width = 1 + Math.random() * 2 + "px";
+      particle.style.height = particle.style.width;
+      particles.appendChild(particle);
+    }
+  }
 
   function showPanel(name) {
     switchButtons.forEach(function (button) {
@@ -43,12 +61,13 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
-  function togglePassword(targetId) {
+  function togglePassword(button, targetId) {
     var input = document.getElementById(targetId);
     if (!input) {
       return;
     }
     input.type = input.type === "password" ? "text" : "password";
+    button.textContent = input.type === "password" ? "显示" : "隐藏";
   }
 
   function countdown(button) {
@@ -95,9 +114,9 @@
     });
   });
 
-  document.querySelectorAll("[data-toggle]").forEach(function (button) {
+  document.querySelectorAll("[data-toggle], [data-toggle-password]").forEach(function (button) {
     button.addEventListener("click", function () {
-      togglePassword(button.getAttribute("data-toggle"));
+      togglePassword(button, button.getAttribute("data-toggle") || button.getAttribute("data-toggle-password"));
     });
   });
 
@@ -109,12 +128,12 @@
     var remember = document.getElementById("remember-me").checked;
 
     if (!username || !password) {
-      setStatus("请先输入手机号和密码。", "err");
+      setStatus("请先输入账号和密码。", "err");
       return;
     }
 
     loginSubmit.disabled = true;
-    loginSubmit.textContent = "登录中...";
+    loginSubmit.textContent = "登录中";
     setStatus("正在请求服务端 /api/login ...", "");
 
     var body = new URLSearchParams();
@@ -139,7 +158,7 @@
       })
       .finally(function () {
         loginSubmit.disabled = false;
-        loginSubmit.textContent = "登录";
+        loginSubmit.textContent = "登 录";
       });
   });
 
@@ -209,7 +228,7 @@
     }
 
     registerSubmit.disabled = true;
-    registerSubmit.textContent = "注册中...";
+    registerSubmit.textContent = "注册中";
     setStatus("正在请求服务端 /api/register ...", "");
 
     var body = new URLSearchParams();
@@ -272,7 +291,7 @@
     }
 
     resetSubmit.disabled = true;
-    resetSubmit.textContent = "正在重置...";
+    resetSubmit.textContent = "重置中";
 
     var body = new URLSearchParams();
     body.set("phone", phone);
@@ -335,5 +354,6 @@
       });
   });
 
-  setStatus("手机号注册和找回密码已接入邮箱验证码。演示账号：admin / 12345", "");
+  createParticles();
+  setStatus("", "");
 })();

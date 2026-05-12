@@ -691,10 +691,10 @@ void WebServer::eventListen()
         m_root = std::string(cwd) + "/public";
     }
 
-    std::cout << "Server listening on 0.0.0.0:" << m_port << std::endl;
+    AppLogger::info("server listening on 0.0.0.0:" + std::to_string(m_port));
     if (!m_db_pool.available())
     {
-        std::cout << "MySQL pool unavailable: " << m_db_pool.last_error() << std::endl;
+        AppLogger::error("MySQL pool unavailable: " + m_db_pool.last_error());
     }
 }
 
@@ -1811,6 +1811,7 @@ HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request
     std::string detail;
     if (!save_uploaded_image(request, saved_path, detail))
     {
+        AppLogger::error("image upload failed: " + detail);
         return build_response_with_body(400,
                                         "Bad Request",
                                         "application/json; charset=utf-8",
@@ -1818,6 +1819,7 @@ HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request
                                             json_escape_string(detail) + "\"}");
     }
 
+    AppLogger::info("image upload success path=" + saved_path);
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
@@ -1839,6 +1841,7 @@ HttpConn::Response WebServer::handle_upload_video_api(const HttpConn::Request &r
     std::string detail;
     if (!save_uploaded_media(request, "videos", "video", false, saved_path, detail))
     {
+        AppLogger::error("video upload failed: " + detail);
         return build_response_with_body(400,
                                         "Bad Request",
                                         "application/json; charset=utf-8",
@@ -1846,6 +1849,7 @@ HttpConn::Response WebServer::handle_upload_video_api(const HttpConn::Request &r
                                             json_escape_string(detail) + "\"}");
     }
 
+    AppLogger::info("video upload success path=" + saved_path);
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
@@ -1912,6 +1916,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
     if (username == "admin" && password == "12345")
     {
         const std::string token = create_session(username, true);
+        AppLogger::info("login success username=admin role=admin source=fallback");
         std::ostringstream body;
         body << "{"
              << "\"ok\":true,"
@@ -1931,6 +1936,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
     if (validate_user_with_db(username, password, db_detail))
     {
         const std::string token = create_session(username, false);
+        AppLogger::info("login success username=" + username + " role=user source=mysql");
         std::ostringstream body;
         body << "{"
              << "\"ok\":true,"
@@ -1946,8 +1952,16 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
         return response;
     }
 
-    const std::string message = db_detail.empty() ? "username or password is invalid"
-                                                  : "username or password is invalid; db detail: " + db_detail;
+    if (!db_detail.empty() && db_detail != "password mismatch")
+    {
+        AppLogger::error("login failed username=" + username + " detail=" + db_detail);
+    }
+    else
+    {
+        AppLogger::info("login failed username=" + username + " reason=invalid_credentials");
+    }
+
+    const std::string message = "username or password is invalid";
     return build_response_with_body(401,
                                     "Unauthorized",
                                     "application/json; charset=utf-8",
@@ -1990,6 +2004,7 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
 
     if (!verify_email_code(email, email_code, detail))
     {
+        AppLogger::info("register failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " reason=" + detail);
         return build_response_with_body(400,
                                         "Bad Request",
                                         "application/json; charset=utf-8",
@@ -1998,11 +2013,16 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
 
     if (!register_user_with_db(phone, password, detail))
     {
+        AppLogger::error("register failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " detail=" + detail);
         const int status = detail == "username already exists" ? 409 : 500;
         const std::string status_text = detail == "username already exists" ? "Conflict" : "Internal Server Error";
         if (detail == "username already exists")
         {
             detail = "phone number already registered";
+        }
+        else
+        {
+            detail = "registration failed";
         }
         return build_response_with_body(status,
                                         status_text,
@@ -2010,6 +2030,7 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
                                         std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
     }
 
+    AppLogger::info("register success phone=" + phone + " email=" + AppLogger::mask_email(email));
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
@@ -2035,15 +2056,15 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
     std::string detail;
     if (!SmtpClient::send_verification_code(email, code, detail))
     {
-        std::cerr << "SMTP send failed for " << email << ": " << detail << std::endl;
+        AppLogger::error("SMTP send failed email=" + AppLogger::mask_email(email) + " detail=" + detail);
         return build_response_with_body(500,
                                         "Internal Server Error",
                                         "application/json; charset=utf-8",
-                                        std::string("{\"ok\":false,\"message\":\"verification code email failed: ") +
-                                            json_escape(detail) + "\"}");
+                                        "{\"ok\":false,\"message\":\"verification code email failed\"}");
     }
 
     save_email_verification_code(email, code);
+    AppLogger::info("verification code sent email=" + AppLogger::mask_email(email));
 
     return build_response_with_body(200,
                                     "OK",
@@ -2087,24 +2108,27 @@ HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request)
     if (!m_db_pool.available())
     {
         detail = m_db_pool.last_error();
+        AppLogger::error("reset failed phone=" + phone + " detail=" + detail);
         return build_response_with_body(500,
                                         "Internal Server Error",
                                         "application/json; charset=utf-8",
-                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+                                        "{\"ok\":false,\"message\":\"password reset failed\"}");
     }
 
     bool exists = false;
     if (!m_db_pool.user_exists(phone, exists))
     {
         detail = m_db_pool.last_error();
+        AppLogger::error("reset failed phone=" + phone + " detail=" + detail);
         return build_response_with_body(500,
                                         "Internal Server Error",
                                         "application/json; charset=utf-8",
-                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+                                        "{\"ok\":false,\"message\":\"password reset failed\"}");
     }
 
     if (!exists)
     {
+        AppLogger::info("reset failed phone=" + phone + " reason=not_registered");
         return build_response_with_body(404,
                                         "Not Found",
                                         "application/json; charset=utf-8",
@@ -2113,6 +2137,7 @@ HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request)
 
     if (!verify_email_code(email, email_code, detail))
     {
+        AppLogger::info("reset failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " reason=" + detail);
         return build_response_with_body(400,
                                         "Bad Request",
                                         "application/json; charset=utf-8",
@@ -2121,14 +2146,17 @@ HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request)
 
     if (!reset_user_password_with_db(phone, password, detail))
     {
+        AppLogger::error("reset failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " detail=" + detail);
         const int status = detail == "phone number was not registered" ? 404 : 500;
         const std::string status_text = detail == "phone number was not registered" ? "Not Found" : "Internal Server Error";
         return build_response_with_body(status,
                                         status_text,
                                         "application/json; charset=utf-8",
-                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape(status == 404 ? detail : "password reset failed") + "\"}");
     }
 
+    AppLogger::info("reset success phone=" + phone + " email=" + AppLogger::mask_email(email));
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",

@@ -5,16 +5,32 @@
   var uploadForm = document.getElementById("video-upload-form");
   var uploadInput = document.getElementById("upload-video");
   var uploadSubmit = document.getElementById("video-upload-submit");
+  var uploadTrigger = document.getElementById("video-upload-trigger");
+  var dropZone = document.getElementById("video-drop-zone");
   var uploadStatus = document.getElementById("video-upload-status");
   var uploadMessage = document.getElementById("video-upload-message");
   var uploadProgress = document.getElementById("video-upload-progress");
   var uploadProgressBar = document.getElementById("video-upload-progress-bar");
   var uploadMeta = document.getElementById("video-upload-meta");
   var uploadRetry = document.getElementById("video-upload-retry");
+  var searchInput = document.getElementById("video-search-input");
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".video-chip"));
+  var viewBtns = Array.prototype.slice.call(document.querySelectorAll(".video-view-toggle button"));
+  var countNode = document.getElementById("video-count");
+  var totalCountNode = document.getElementById("video-total-count");
+  var totalSizeNode = document.getElementById("video-total-size");
+  var totalDurationNode = document.getElementById("video-total-duration");
+
   var lastUploadFile = null;
   var canUpload = false;
+  var allVideos = [];
+  var activeFilter = "all";
+  var durationByUrl = {};
 
   function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) {
+      return "--";
+    }
     if (bytes >= 1024 * 1024 * 1024) {
       return (bytes / 1024 / 1024 / 1024).toFixed(2) + "GB";
     }
@@ -25,6 +41,21 @@
       return (bytes / 1024).toFixed(1) + "KB";
     }
     return bytes + "B";
+  }
+
+  function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "--";
+    }
+    var whole = Math.round(seconds);
+    var minutes = Math.floor(whole / 60);
+    var remaining = whole % 60;
+    return minutes + ":" + String(remaining).padStart(2, "0");
+  }
+
+  function fileExt(name) {
+    var match = String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+    return match ? match[1] : "video";
   }
 
   function setUploadStatus(text, state, options) {
@@ -65,21 +96,19 @@
       })
       .then(function (user) {
         canUpload = !!(user && user.ok && user.role === "admin");
-        if (uploadPanel) {
-          uploadPanel.hidden = !canUpload;
-        }
+        uploadPanel.hidden = !canUpload;
+        uploadTrigger.hidden = !canUpload;
       })
       .catch(function () {
         canUpload = false;
-        if (uploadPanel) {
-          uploadPanel.hidden = true;
-        }
+        uploadPanel.hidden = true;
+        uploadTrigger.hidden = true;
       });
   }
 
   function uploadFile(file) {
     if (!canUpload) {
-      setUploadStatus("only admin can upload videos", "err");
+      setUploadStatus("只有管理员可以上传视频。", "err");
       return;
     }
 
@@ -113,8 +142,7 @@
     xhr.addEventListener("load", function () {
       var data = parseUploadResponse(xhr);
       if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
-        var message = data.message || "上传失败，请检查视频格式、大小或网络连接后重试。";
-        setUploadStatus(message, "err", {
+        setUploadStatus(data.message || "上传失败，请检查视频格式、大小或网络连接后重试。", "err", {
           progress: 100,
           meta: "文件仍保留在选择框中，可以直接重新上传。",
           canRetry: true
@@ -157,23 +185,69 @@
     xhr.send(formData);
   }
 
-  function renderVideos(items) {
+  function updateStats(items) {
+    var knownBytes = items.reduce(function (sum, item) {
+      return sum + (Number(item.size) || 0);
+    }, 0);
+    var knownDuration = items.reduce(function (sum, item) {
+      return sum + (Number(durationByUrl[item.url]) || 0);
+    }, 0);
+
+    countNode.textContent = items.length;
+    totalCountNode.textContent = items.length;
+    totalSizeNode.textContent = knownBytes ? formatFileSize(knownBytes) : "--";
+    totalDurationNode.textContent = knownDuration ? formatDuration(knownDuration) : "--";
+  }
+
+  function filteredVideos() {
+    var query = searchInput.value.trim().toLowerCase();
+    return allVideos.filter(function (item) {
+      var title = String(item.title || "").toLowerCase();
+      var ext = fileExt(item.title || item.url);
+      var matchesFilter = activeFilter === "all" || ext === activeFilter;
+      var matchesSearch = !query || title.indexOf(query) !== -1;
+      return matchesFilter && matchesSearch;
+    });
+  }
+
+  function renderVideos() {
+    var items = filteredVideos();
     videoGrid.innerHTML = "";
+    updateStats(items);
 
     if (!items.length) {
-      videoGrid.innerHTML = '<div class="gallery-empty">视频库为空。</div>';
+      videoGrid.innerHTML = '<div class="gallery-empty">没有找到匹配的视频。</div>';
       return;
     }
 
-    items.forEach(function (item) {
+    items.forEach(function (item, index) {
       var fragment = template.content.cloneNode(true);
+      var card = fragment.querySelector(".redesign-video-card");
       var video = fragment.querySelector("video");
-      var title = fragment.querySelector("strong");
-      var path = fragment.querySelector(".gallery-copy span");
+      var title = fragment.querySelector(".redesign-video-name");
+      var path = fragment.querySelector(".redesign-video-path");
+      var extBadge = fragment.querySelector(".format-badge");
+      var newBadge = fragment.querySelector(".new-badge");
+      var duration = fragment.querySelector(".duration-badge");
+      var size = fragment.querySelector(".redesign-video-size");
+      var download = fragment.querySelector(".icon-btn");
+      var ext = fileExt(item.title || item.url).toUpperCase();
 
+      card.dataset.ext = ext.toLowerCase();
       video.src = item.url;
-      title.textContent = item.title;
+      title.textContent = item.title || item.url;
       path.textContent = item.path || item.url;
+      extBadge.textContent = ext;
+      newBadge.hidden = index > 1;
+      duration.textContent = formatDuration(durationByUrl[item.url]);
+      size.textContent = formatFileSize(item.size);
+      download.href = item.url;
+
+      video.addEventListener("loadedmetadata", function () {
+        durationByUrl[item.url] = video.duration;
+        duration.textContent = formatDuration(video.duration);
+        updateStats(filteredVideos());
+      });
 
       videoGrid.appendChild(fragment);
     });
@@ -188,24 +262,34 @@
         return response.json();
       })
       .then(function (items) {
-        renderVideos(Array.isArray(items) ? items : []);
+        allVideos = Array.isArray(items) ? items : [];
+        renderVideos();
       })
       .catch(function () {
         videoGrid.innerHTML = '<div class="gallery-empty">视频列表加载失败，请刷新页面或确认服务正在运行。</div>';
+        updateStats([]);
       });
   }
 
-  uploadInput.addEventListener("change", function () {
-    if (!uploadInput.files || !uploadInput.files[0]) {
+  function chooseFile(file) {
+    if (!file) {
       lastUploadFile = null;
       setUploadStatus("等待选择视频。");
       return;
     }
 
-    lastUploadFile = uploadInput.files[0];
+    lastUploadFile = file;
     setUploadStatus("已选择视频，准备上传。", "", {
       meta: lastUploadFile.name + " · " + formatFileSize(lastUploadFile.size)
     });
+  }
+
+  uploadTrigger.addEventListener("click", function () {
+    uploadInput.click();
+  });
+
+  uploadInput.addEventListener("change", function () {
+    chooseFile(uploadInput.files && uploadInput.files[0]);
   });
 
   uploadRetry.addEventListener("click", function () {
@@ -218,16 +302,18 @@
     event.preventDefault();
 
     if (!canUpload) {
-      setUploadStatus("only admin can upload videos", "err");
+      setUploadStatus("只有管理员可以上传视频。", "err");
       return;
     }
 
-    if (!uploadInput.files || !uploadInput.files[0]) {
+    if (!lastUploadFile && uploadInput.files && uploadInput.files[0]) {
+      lastUploadFile = uploadInput.files[0];
+    }
+
+    if (!lastUploadFile) {
       setUploadStatus("请先选择一个视频。", "err");
       return;
     }
-
-    lastUploadFile = uploadInput.files[0];
 
     if (lastUploadFile.size > 1024 * 1024 * 1024) {
       setUploadStatus("视频不能超过 1GB，请压缩或拆分后再上传。", "err", {
@@ -238,6 +324,51 @@
 
     uploadFile(lastUploadFile);
   });
+
+  ["dragenter", "dragover"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.add("dragging");
+    });
+  });
+
+  ["dragleave", "drop"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.remove("dragging");
+    });
+  });
+
+  dropZone.addEventListener("drop", function (event) {
+    var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) {
+      uploadInput.files = event.dataTransfer.files;
+      chooseFile(file);
+    }
+  });
+
+  chips.forEach(function (chip) {
+    chip.addEventListener("click", function () {
+      chips.forEach(function (item) {
+        item.classList.remove("active");
+      });
+      chip.classList.add("active");
+      activeFilter = chip.dataset.filter || "all";
+      renderVideos();
+    });
+  });
+
+  viewBtns.forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      viewBtns.forEach(function (item) {
+        item.classList.remove("active");
+      });
+      btn.classList.add("active");
+      videoGrid.classList.toggle("list-view", btn.dataset.view === "list");
+    });
+  });
+
+  searchInput.addEventListener("input", renderVideos);
 
   loadCurrentUser().then(loadVideos);
 })();

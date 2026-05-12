@@ -6,101 +6,142 @@
   <title>XIAOCHEN - 视频管理</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
-  <div class="app-shell">
-    <aside class="app-sidebar">
-      <div class="app-logo">
-        <span class="app-logo-mark">XC</span>
-        <div>
-          <strong>XIAOCHEN</strong>
-          <span>内容控制台</span>
-        </div>
+<body class="video-library-page">
+  <div class="video-layout">
+    <aside class="video-sidebar">
+      <div class="video-brand">
+        <span class="video-brand-mark">X</span>
+        <strong>XIAOCHEN</strong>
+        <span>内容控制台</span>
       </div>
 
-      <nav class="app-nav" aria-label="主导航">
-        <a href="/app.html">图片库</a>
-        <a class="active" href="/video.html">视频库</a>
-        <a href="/images/">图片目录</a>
-        <a href="/videos/">视频目录</a>
-        <a href="/profile.html">个人中心</a>
-        <a href="/login.html">退出登录</a>
+      <nav class="video-nav" aria-label="主导航">
+        <span class="video-nav-section">媒体库</span>
+        <a href="/app.html"><span class="nav-icon">I</span>图片库</a>
+        <a class="active" href="/video.html"><span class="nav-icon">V</span>视频库</a>
+        <span class="video-nav-section">目录</span>
+        <a href="/images/"><span class="nav-icon">D</span>图片目录</a>
+        <a href="/videos/"><span class="nav-icon">F</span>视频目录</a>
+        <span class="video-nav-section">账户</span>
+        <a href="/profile.html"><span class="nav-icon">U</span>个人中心</a>
       </nav>
+
+      <a class="video-logout" href="/login.html"><span class="nav-icon">Q</span>退出登录</a>
     </aside>
 
-    <main class="app-main">
-      <header class="page-head">
-        <div>
-          <div class="eyebrow">Videos</div>
+    <main class="video-main">
+      <header class="video-topbar">
+        <div class="video-page-title">
+          <span>VIDEOS</span>
           <h1>视频库</h1>
         </div>
-        <div class="page-actions">
-          <a class="action-btn secondary" href="/videos/">打开目录</a>
+        <div class="video-topbar-actions">
+          <a class="video-btn ghost" href="/videos/">打开目录</a>
+          <button class="video-btn primary" type="button" id="video-upload-trigger" hidden>上传视频</button>
         </div>
       </header>
 
-      <section class="hero-card video-hero">
-        <div class="hero-copy">
-          <span class="status-pill">媒体资源</span>
-          <h2>集中管理视频文件</h2>
-          <p>上传成功的视频会保存到 <code>/videos/</code>，列表支持直接播放。</p>
-        </div>
-        <div class="hero-video-note">
-          <strong>支持格式</strong>
-          <span>MP4 / WEBM / OGG / MOV / AVI / MKV / M4V</span>
-          <strong>大小限制</strong>
-          <span>单个视频最大 1GB</span>
-        </div>
-      </section>
+      <section class="video-content">
+        <section class="video-upload-card" id="video-upload-panel" hidden>
+          <form class="video-upload-form" id="video-upload-form">
+            <label class="video-drop-zone" id="video-drop-zone">
+              <input type="file" id="upload-video" name="video" accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,video/*">
+              <span class="video-upload-icon">UP</span>
+              <strong>拖拽视频到此处上传</strong>
+              <span>或 <em>点击选择文件</em> 开始上传</span>
+              <span class="format-row">
+                <b>MP4</b><b>WEBM</b><b>MOV</b><b>MKV</b><b>AVI</b><b>M4V</b>
+              </span>
+            </label>
 
-      <section class="upload-panel" id="video-upload-panel" hidden>
-        <div class="section-head compact">
-          <div>
-            <div class="eyebrow">Upload</div>
-            <h2>上传视频</h2>
+            <div class="video-upload-meta">
+              <span class="meta-kicker">上传规范</span>
+              <div class="meta-line">
+                <strong>支持格式</strong>
+                <span>MP4 / WEBM / OGG / MOV / AVI / MKV / M4V</span>
+              </div>
+              <div class="meta-line">
+                <strong>大小限制</strong>
+                <span>单个视频最大 1GB</span>
+              </div>
+              <div class="meta-line">
+                <strong>存储路径</strong>
+                <span>/videos/</span>
+              </div>
+              <button class="video-btn primary upload-submit" type="submit" id="video-upload-submit">上传</button>
+            </div>
+          </form>
+
+          <div class="upload-status compact-status" id="video-upload-status" aria-live="polite">
+            <div class="upload-message" id="video-upload-message">等待选择视频。</div>
+            <div class="upload-progress" id="video-upload-progress" aria-hidden="true">
+              <div class="upload-progress-bar" id="video-upload-progress-bar"></div>
+            </div>
+            <div class="upload-meta" id="video-upload-meta"></div>
+            <button class="video-btn ghost upload-retry" type="button" id="video-upload-retry" hidden>重新上传</button>
           </div>
-          <p>视频文件会进入独立目录。</p>
-        </div>
+        </section>
 
-        <form class="upload-form" id="video-upload-form">
-          <label class="upload-field">
-            <span>选择视频</span>
-            <input type="file" id="upload-video" name="video" accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,video/*">
-          </label>
-          <button class="action-btn upload-btn" type="submit" id="video-upload-submit">上传</button>
-        </form>
-
-        <div class="upload-status" id="video-upload-status" aria-live="polite">
-          <div class="upload-message" id="video-upload-message">等待选择视频。</div>
-          <div class="upload-progress" id="video-upload-progress" aria-hidden="true">
-            <div class="upload-progress-bar" id="video-upload-progress-bar"></div>
+        <section class="video-library">
+          <div class="video-section-head">
+            <div>
+              <span>LIBRARY</span>
+              <h2>视频列表 <b id="video-count">0</b></h2>
+            </div>
+            <p>按最新资源优先展示</p>
           </div>
-          <div class="upload-meta" id="video-upload-meta"></div>
-          <button class="action-btn secondary upload-retry" type="button" id="video-upload-retry" hidden>重新上传</button>
-        </div>
-      </section>
 
-      <section class="gallery-panel">
-        <div class="section-head">
-          <div>
-            <div class="eyebrow">Library</div>
-            <h2>视频列表</h2>
+          <div class="video-filter-bar">
+            <label class="video-search">
+              <span>搜索</span>
+              <input id="video-search-input" type="search" placeholder="搜索视频文件名...">
+            </label>
+            <button class="video-chip active" type="button" data-filter="all">全部</button>
+            <button class="video-chip" type="button" data-filter="mp4">MP4</button>
+            <button class="video-chip" type="button" data-filter="webm">WEBM</button>
+            <button class="video-chip" type="button" data-filter="mov">MOV</button>
+            <div class="video-view-toggle" aria-label="视图切换">
+              <button class="active" type="button" data-view="grid">网格</button>
+              <button type="button" data-view="list">列表</button>
+            </div>
           </div>
-          <p>按最新资源优先展示。</p>
-        </div>
 
-        <div class="video-grid" id="video-grid"></div>
+          <div class="redesign-video-grid" id="video-grid"></div>
+
+          <div class="video-stats" aria-label="视频统计">
+            <div>
+              <strong id="video-total-count">0</strong>
+              <span>视频总数</span>
+            </div>
+            <div>
+              <strong id="video-total-size">--</strong>
+              <span>已用空间</span>
+            </div>
+            <div>
+              <strong id="video-total-duration">--</strong>
+              <span>总时长</span>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
   </div>
 
   <template id="video-card-template">
-    <article class="video-card">
-      <div class="video-frame">
+    <article class="redesign-video-card">
+      <div class="redesign-video-thumb">
         <video controls preload="metadata"></video>
+        <span class="format-badge"></span>
+        <span class="new-badge">新</span>
+        <span class="duration-badge">--</span>
       </div>
-      <div class="gallery-copy">
-        <strong></strong>
-        <span></span>
+      <div class="redesign-video-info">
+        <strong class="redesign-video-name"></strong>
+        <span class="redesign-video-path"></span>
+        <div class="redesign-video-footer">
+          <span class="redesign-video-size">--</span>
+          <a class="icon-btn" href="#" download title="下载视频">下载</a>
+        </div>
       </div>
     </article>
   </template>

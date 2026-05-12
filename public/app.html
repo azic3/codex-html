@@ -6,101 +6,156 @@
   <title>XIAOCHEN - 图片管理</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
-  <div class="app-shell">
-    <aside class="app-sidebar">
-      <div class="app-logo">
-        <span class="app-logo-mark">XC</span>
-        <div>
-          <strong>XIAOCHEN</strong>
-          <span>内容控制台</span>
-        </div>
+<body class="image-library-page">
+  <div class="video-layout">
+    <aside class="video-sidebar">
+      <div class="video-brand">
+        <span class="video-brand-mark">X</span>
+        <strong>XIAOCHEN</strong>
+        <span>内容控制台</span>
       </div>
 
-      <nav class="app-nav" aria-label="主导航">
-        <a class="active" href="/app.html">图片库</a>
-        <a href="/video.html">视频库</a>
-        <a href="/images/">图片目录</a>
-        <a href="/videos/">视频目录</a>
-        <a href="/profile.html">个人中心</a>
-        <a href="/login.html">退出登录</a>
+      <nav class="video-nav" aria-label="主导航">
+        <span class="video-nav-section">媒体库</span>
+        <a class="active" href="/app.html"><span class="nav-icon">I</span>图片库</a>
+        <a href="/video.html"><span class="nav-icon">V</span>视频库</a>
+        <span class="video-nav-section">目录</span>
+        <a href="/images/"><span class="nav-icon">D</span>图片目录</a>
+        <a href="/videos/"><span class="nav-icon">F</span>视频目录</a>
+        <span class="video-nav-section">账户</span>
+        <a href="/profile.html"><span class="nav-icon">U</span>个人中心</a>
       </nav>
+
+      <a class="video-logout" href="/login.html"><span class="nav-icon">Q</span>退出登录</a>
     </aside>
 
-    <main class="app-main">
-      <header class="page-head">
-        <div>
-          <div class="eyebrow">Images</div>
+    <main class="video-main">
+      <header class="video-topbar">
+        <div class="video-page-title">
+          <span>IMAGES</span>
           <h1>图片库</h1>
         </div>
-        <div class="page-actions">
-          <a class="action-btn secondary" href="/images/">打开目录</a>
-          <button class="action-btn" type="button" id="open-first-image">预览首图</button>
+        <div class="video-topbar-actions">
+          <button class="video-btn ghost" type="button" id="open-first-image">预览首图</button>
+          <a class="video-btn ghost" href="/images/">打开目录</a>
+          <button class="video-btn primary" type="button" id="image-upload-trigger" hidden>上传图片</button>
         </div>
       </header>
 
-      <section class="hero-card">
-        <div class="hero-copy">
-          <span class="status-pill">本地资源</span>
-          <h2>管理上传后的图片素材</h2>
-          <p>上传成功的图片会保存到 <code>/images/</code>，并显示在下方列表中。</p>
-        </div>
-        <img src="/images/凡人修仙_001.png" alt="图片预览" id="hero-preview">
-      </section>
-
-      <section class="upload-panel" id="upload-panel" hidden>
-        <div class="section-head compact">
-          <div>
-            <div class="eyebrow">Upload</div>
-            <h2>上传图片</h2>
+      <section class="video-content image-content">
+        <section class="image-hero-card">
+          <div class="image-hero-copy">
+            <span class="image-hero-tag">本地资源</span>
+            <h2>管理上传后的图片素材</h2>
+            <p>上传成功的图片会保存到 <code>/images/</code>，并显示在下方列表中。支持预览、下载、复制路径和格式筛选。</p>
+            <div class="image-hero-meta">
+              <span>共 <strong id="hero-image-count">0</strong> 张图片</span>
+              <span>已用 <strong id="hero-image-size">--</strong></span>
+              <span><strong id="hero-main-format">--</strong> / JPG / WEBP</span>
+            </div>
           </div>
-          <p>PNG、JPG、JPEG、GIF、BMP、WEBP、SVG，单张最大 20MB。</p>
-        </div>
-
-        <form class="upload-form" id="upload-form">
-          <label class="upload-field">
-            <span>选择图片</span>
-            <input type="file" id="upload-image" name="image" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,image/*">
-          </label>
-          <button class="action-btn upload-btn" type="submit" id="upload-submit">上传</button>
-        </form>
-
-        <div class="upload-status" id="upload-status" aria-live="polite">
-          <div class="upload-message" id="upload-message">等待选择图片。</div>
-          <div class="upload-progress" id="upload-progress" aria-hidden="true">
-            <div class="upload-progress-bar" id="upload-progress-bar"></div>
+          <div class="image-hero-preview">
+            <img alt="图片预览" id="hero-preview">
+            <div class="image-hero-placeholder" id="hero-placeholder">XIAOCHEN</div>
           </div>
-          <div class="upload-meta" id="upload-meta"></div>
-          <button class="action-btn secondary upload-retry" type="button" id="upload-retry" hidden>重新上传</button>
-        </div>
-      </section>
+        </section>
 
-      <section class="gallery-panel">
-        <div class="section-head">
-          <div>
-            <div class="eyebrow">Library</div>
-            <h2>图片列表</h2>
+        <section class="image-upload-bar" id="upload-panel" hidden>
+          <form class="image-upload-form" id="upload-form">
+            <label class="image-upload-drop" id="image-drop-zone">
+              <input type="file" id="upload-image" name="image" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,image/*">
+              <span class="image-upload-icon">UP</span>
+              <span>
+                <strong>拖拽图片到此处上传</strong>
+                <em>或点击选择文件 · 单张最大 20MB</em>
+              </span>
+            </label>
+            <div class="image-format-tags">
+              <b>PNG</b><b>JPG</b><b>WEBP</b><b>GIF</b><b>SVG</b>
+            </div>
+            <button class="video-btn primary" type="submit" id="upload-submit">上传</button>
+          </form>
+
+          <div class="upload-status compact-status" id="upload-status" aria-live="polite">
+            <div class="upload-message" id="upload-message">等待选择图片。</div>
+            <div class="upload-progress" id="upload-progress" aria-hidden="true">
+              <div class="upload-progress-bar" id="upload-progress-bar"></div>
+            </div>
+            <div class="upload-meta" id="upload-meta"></div>
+            <button class="video-btn ghost upload-retry" type="button" id="upload-retry" hidden>重新上传</button>
           </div>
-          <p>按最新资源优先展示。</p>
-        </div>
+        </section>
 
-        <div class="gallery-grid" id="gallery-grid"></div>
+        <section class="image-library">
+          <div class="video-section-head">
+            <div>
+              <span>LIBRARY</span>
+              <h2>图片列表 <b id="image-count">0</b></h2>
+            </div>
+            <p>按最新资源优先展示</p>
+          </div>
+
+          <div class="video-filter-bar">
+            <label class="video-search">
+              <span>搜索</span>
+              <input id="image-search-input" type="search" placeholder="搜索图片文件名...">
+            </label>
+            <button class="video-chip active" type="button" data-filter="all">全部</button>
+            <button class="video-chip" type="button" data-filter="png">PNG</button>
+            <button class="video-chip" type="button" data-filter="jpg">JPG</button>
+            <button class="video-chip" type="button" data-filter="webp">WEBP</button>
+            <div class="video-view-toggle" aria-label="视图切换">
+              <button class="active" type="button" data-view="grid">网格</button>
+              <button type="button" data-view="list">列表</button>
+            </div>
+          </div>
+
+          <div class="redesign-image-grid" id="gallery-grid"></div>
+
+          <div class="image-stats" aria-label="图片统计">
+            <div>
+              <strong id="image-total-count">0</strong>
+              <span>图片总数</span>
+            </div>
+            <div>
+              <strong id="image-total-size">--</strong>
+              <span>已用空间</span>
+            </div>
+            <div>
+              <strong id="image-png-count">0</strong>
+              <span>PNG 格式</span>
+            </div>
+            <div>
+              <strong id="image-average-width">--</strong>
+              <span>平均宽度</span>
+            </div>
+          </div>
+        </section>
       </section>
     </main>
   </div>
 
   <template id="gallery-card-template">
-    <article class="gallery-card">
-      <button class="gallery-preview-btn" type="button">
-        <span class="gallery-thumb">
-          <img src="" alt="">
-        </span>
-      </button>
-      <span class="gallery-copy">
-        <strong></strong>
-        <span></span>
-        <a class="gallery-download" href="#" download>下载图片</a>
-      </span>
+    <article class="redesign-image-card">
+      <div class="redesign-image-thumb">
+        <img src="" alt="">
+        <div class="redesign-image-overlay">
+          <button class="image-overlay-btn preview-action" type="button">预览</button>
+          <a class="image-overlay-btn download-action" href="#" download>下载</a>
+          <button class="image-overlay-btn copy-action" type="button">复制</button>
+        </div>
+        <span class="img-fmt"></span>
+        <span class="img-new">新</span>
+        <span class="img-resolution">--</span>
+      </div>
+      <div class="redesign-image-info">
+        <strong class="redesign-image-name"></strong>
+        <span class="redesign-image-path"></span>
+        <div class="redesign-image-footer">
+          <span class="redesign-image-size">--</span>
+          <a class="image-mini-action" href="#" download>下载</a>
+        </div>
+      </div>
     </article>
   </template>
 

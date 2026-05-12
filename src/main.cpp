@@ -1,4 +1,5 @@
 #include "config.h"
+#include "app_logger.h"
 #include "webserver.h"
 
 #include <exception>
@@ -34,7 +35,7 @@ int main(int argc, char *argv[])
     }
     catch (const std::exception &ex)
     {
-        std::cerr << "server start failed: " << ex.what() << std::endl;
+        AppLogger::error(std::string("server start failed: ") + ex.what());
         return 1;
     }
 

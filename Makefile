@@ -12,6 +12,7 @@ SOURCES := \
 	src/threadpool/threadpool.cpp \
 	src/db/CGmysql.cpp \
 	src/mail/smtp_client.cpp \
+	src/logging/app_logger.cpp \
 	src/security/password_hasher.cpp
 OBJECTS := $(patsubst %.cpp,build/%.o,$(SOURCES))
 INCLUDES := \
@@ -21,6 +22,7 @@ INCLUDES := \
 	-Isrc/threadpool \
 	-Isrc/db \
 	-Isrc/mail \
+	-Isrc/logging \
 	-Isrc/security
 
 .PHONY: all clean rebuild

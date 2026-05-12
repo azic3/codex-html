@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XIAOCHEN - 个人中心</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/profile.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="app-sidebar">
+      <div class="app-logo">
+        <span class="app-logo-mark">XC</span>
+        <div>
+          <strong>XIAOCHEN</strong>
+          <span>内容控制台</span>
+        </div>
+      </div>
+
+      <nav class="app-nav" aria-label="主导航">
+        <a href="/app.html">图片库</a>
+        <a href="/video.html">视频库</a>
+        <a href="/images/">图片目录</a>
+        <a href="/videos/">视频目录</a>
+        <a class="active" href="/profile.html">个人中心</a>
+        <a href="/login.html">退出登录</a>
+      </nav>
+    </aside>
+
+    <main class="app-main">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">Profile</div>
+          <h1>个人中心</h1>
+        </div>
+        <div class="page-actions">
+          <a class="action-btn secondary" href="/app.html">进入图片库</a>
+          <a class="action-btn secondary" href="/video.html">进入视频库</a>
+        </div>
+      </header>
+
+      <section class="profile-panel" aria-live="polite">
+        <div class="profile-avatar" id="profile-avatar">XC</div>
+        <div class="profile-summary">
+          <span class="status-pill" id="profile-role">加载中</span>
+          <h2 id="profile-username">正在读取账号信息</h2>
+          <p id="profile-permission">请稍候，正在确认你的登录状态和账号权限。</p>
+        </div>
+      </section>
+
+      <section class="profile-grid">
+        <article class="profile-card">
+          <div class="eyebrow">Account</div>
+          <h2>账号信息</h2>
+          <dl class="profile-list">
+            <div>
+              <dt>当前账号</dt>
+              <dd id="account-name">-</dd>
+            </div>
+            <div>
+              <dt>账号身份</dt>
+              <dd id="account-role">-</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="profile-card">
+          <div class="eyebrow">Access</div>
+          <h2>权限范围</h2>
+          <ul class="permission-list" id="permission-list">
+            <li>正在加载权限信息。</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="profile-actions">
+        <a class="action-btn" href="/app.html">图片库</a>
+        <a class="action-btn" href="/video.html">视频库</a>
+        <a class="action-btn secondary" href="/login.html">修改密码</a>
+        <button class="action-btn danger" type="button" id="logout-button">退出登录</button>
+      </section>
+
+      <div class="profile-status" id="profile-status"></div>
+    </main>
+  </div>
+
+  <script src="/js/profile.js"></script>
+</body>
+</html>
