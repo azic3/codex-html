@@ -58,5 +58,6 @@ Thumbs.db
 # Local secrets
 smtp.env
 run_server.local.sh
+config/local/.env
 config/local/
 scripts/run_server.local.sh

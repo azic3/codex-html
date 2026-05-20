@@ -58,6 +58,17 @@
     return match ? match[1] : "video";
   }
 
+  function displayFileName(item) {
+    var value = item.title || item.path || item.url || "";
+    var filename = String(value).split("?")[0].split("#")[0].split("/").pop();
+
+    try {
+      return decodeURIComponent(filename);
+    } catch (error) {
+      return filename;
+    }
+  }
+
   function setUploadStatus(text, state, options) {
     options = options || {};
     uploadMessage.textContent = text;
@@ -236,7 +247,7 @@
       card.dataset.ext = ext.toLowerCase();
       video.src = item.url;
       title.textContent = item.title || item.url;
-      path.textContent = item.path || item.url;
+      path.textContent = displayFileName(item);
       extBadge.textContent = ext;
       newBadge.hidden = index > 1;
       duration.textContent = formatDuration(durationByUrl[item.url]);

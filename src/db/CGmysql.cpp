@@ -1,11 +1,167 @@
 #include "CGmysql.h"
 
+#include <cstring>
 #include <sstream>
+#include <vector>
+
+#if CGMYSQL_HAS_CLIENT
+namespace
+{
+#if defined(MARIADB_BASE_VERSION) || (defined(LIBMYSQL_VERSION_ID) && LIBMYSQL_VERSION_ID < 80000)
+typedef my_bool MysqlBool;
+#else
+typedef bool MysqlBool;
+#endif
+
+void bind_string_param(MYSQL_BIND &bind, const std::string &value, unsigned long &length)
+{
+    std::memset(&bind, 0, sizeof(bind));
+    length = static_cast<unsigned long>(value.size());
+    bind.buffer_type = MYSQL_TYPE_STRING;
+    bind.buffer = const_cast<char *>(value.data());
+    bind.buffer_length = length;
+    bind.length = &length;
+}
+
+bool execute_prepared(MYSQL *conn,
+                      const char *sql,
+                      MYSQL_BIND *params,
+                      const unsigned long param_count,
+                      std::string &error_out)
+{
+    MYSQL_STMT *stmt = mysql_stmt_init(conn);
+    if (stmt == nullptr)
+    {
+        error_out = "mysql_stmt_init failed.";
+        return false;
+    }
+
+    if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_prepare failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (param_count > 0 && mysql_stmt_bind_param(stmt, params) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_execute(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_execute failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    mysql_stmt_close(stmt);
+    error_out.clear();
+    return true;
+}
+
+bool query_column_exists(MYSQL *conn, const std::string &database, const char *column_name, bool &exists_out, std::string &error_out)
+{
+    MYSQL_STMT *stmt = mysql_stmt_init(conn);
+    if (stmt == nullptr)
+    {
+        error_out = "mysql_stmt_init failed.";
+        return false;
+    }
+
+    const char *sql =
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA=? AND TABLE_NAME='user' AND COLUMN_NAME=? LIMIT 1";
+    if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_prepare failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    MYSQL_BIND param[2];
+    unsigned long database_length = 0;
+    unsigned long column_length = 0;
+    const std::string column(column_name);
+    bind_string_param(param[0], database, database_length);
+    bind_string_param(param[1], column, column_length);
+    if (mysql_stmt_bind_param(stmt, param) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_execute(stmt) != 0 || mysql_stmt_store_result(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_execute failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    const int fetch_status = mysql_stmt_fetch(stmt);
+    if (fetch_status == 1)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_fetch failed: " << mysql_stmt_error(stmt);
+        error_out = message.str();
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    exists_out = (fetch_status != MYSQL_NO_DATA);
+    mysql_stmt_close(stmt);
+    error_out.clear();
+    return true;
+}
+
+bool ensure_password_version_column(MYSQL *conn, const std::string &database, std::string &error_out)
+{
+    bool exists = false;
+    if (!query_column_exists(conn, database, "password_version", exists, error_out))
+    {
+        return false;
+    }
+
+    if (exists)
+    {
+        return true;
+    }
+
+    const char *sql = "ALTER TABLE user ADD COLUMN password_version VARCHAR(32) NOT NULL DEFAULT 'legacy'";
+    if (mysql_query(conn, sql) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_query failed: " << mysql_error(conn);
+        error_out = message.str();
+        return false;
+    }
+
+    error_out.clear();
+    return true;
+}
+}
+#endif
 
 CGMysqlPool::CGMysqlPool()
     : m_port(3306),
       m_max_conn(0),
-      m_initialized(false)
+      m_initialized(false),
+      m_password_version_supported(false)
 {
 }
 
@@ -44,6 +200,7 @@ bool CGMysqlPool::init(const std::string &host,
     m_password = password;
     m_database = database;
     m_max_conn = max_conn > 0 ? max_conn : 1;
+    m_password_version_supported = false;
 
 #if !CGMYSQL_HAS_CLIENT
     m_last_error="MySQL client headers were not found at compile time.";
@@ -88,6 +245,11 @@ bool CGMysqlPool::init(const std::string &host,
         }
 
         mysql_set_character_set(conn, "utf8mb4");
+        if (i == 0)
+        {
+            std::string schema_error;
+            m_password_version_supported = ensure_password_version_column(conn, m_database, schema_error);
+        }
         m_connections.push(conn);
     }
 
@@ -142,12 +304,23 @@ std::string CGMysqlPool::last_error() const
 
 bool CGMysqlPool::fetch_user_password(const std::string &username, std::string &password_out)
 {
+    std::string password_version;
+    return fetch_user_credentials(username, password_out, password_version);
+}
+
+bool CGMysqlPool::fetch_user_credentials(const std::string &username,
+                                         std::string &password_out,
+                                         std::string &password_version_out)
+{
 #if !CGMYSQL_HAS_CLIENT
     (void)username;
     (void)password_out;
+    (void)password_version_out;
     set_error("MySQL client support is unavailable in this build.");
     return false;
 #else
+    password_out.clear();
+    password_version_out.clear();
     CGMysqlGuard guard(*this);
     if (!guard.valid())
     {
@@ -156,35 +329,121 @@ bool CGMysqlPool::fetch_user_password(const std::string &username, std::string &
     }
 
     MYSQL *conn = guard.get();
-    const std::string escaped_user = escape_string(conn, username);
-    const std::string query =
-        "SELECT passwd FROM user WHERE username='" + escaped_user + "' LIMIT 1";
+    MYSQL_STMT *stmt = mysql_stmt_init(conn);
+    if (stmt == nullptr)
+    {
+        set_error("mysql_stmt_init failed.");
+        return false;
+    }
 
-    if (mysql_query(conn, query.c_str()) != 0)
+    const bool with_version = m_password_version_supported;
+    const char *sql = with_version
+                          ? "SELECT passwd, password_version FROM user WHERE username=? LIMIT 1"
+                          : "SELECT passwd FROM user WHERE username=? LIMIT 1";
+    if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
     {
         std::ostringstream message;
-        message << "mysql_query failed: " << mysql_error(conn);
+        message << "mysql_stmt_prepare failed: " << mysql_stmt_error(stmt);
         set_error(message.str());
+        mysql_stmt_close(stmt);
         return false;
     }
 
-    MYSQL_RES *result = mysql_store_result(conn);
-    if (result == nullptr)
+    MYSQL_BIND param[1];
+    unsigned long username_length = 0;
+    bind_string_param(param[0], username, username_length);
+    if (mysql_stmt_bind_param(stmt, param) != 0)
     {
-        set_error("mysql_store_result returned null.");
+        std::ostringstream message;
+        message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
         return false;
     }
 
-    MYSQL_ROW row = mysql_fetch_row(result);
-    if (row == nullptr || row[0] == nullptr)
+    if (mysql_stmt_execute(stmt) != 0)
     {
-        mysql_free_result(result);
+        std::ostringstream message;
+        message << "mysql_stmt_execute failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    std::vector<char> password_buffer(4096);
+    std::vector<char> version_buffer(64);
+    unsigned long password_length = 0;
+    unsigned long version_length = 0;
+    MysqlBool password_is_null = 0;
+    MysqlBool version_is_null = 0;
+    MYSQL_BIND result[2];
+    std::memset(result, 0, sizeof(result));
+    result[0].buffer_type = MYSQL_TYPE_STRING;
+    result[0].buffer = password_buffer.data();
+    result[0].buffer_length = static_cast<unsigned long>(password_buffer.size());
+    result[0].length = &password_length;
+    result[0].is_null = &password_is_null;
+    result[1].buffer_type = MYSQL_TYPE_STRING;
+    result[1].buffer = version_buffer.data();
+    result[1].buffer_length = static_cast<unsigned long>(version_buffer.size());
+    result[1].length = &version_length;
+    result[1].is_null = &version_is_null;
+
+    if (mysql_stmt_bind_result(stmt, result) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_store_result(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_store_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    const int fetch_status = mysql_stmt_fetch(stmt);
+    if (fetch_status == MYSQL_NO_DATA || password_is_null)
+    {
         set_error("User was not found in table `user`.");
+        mysql_stmt_close(stmt);
+        return false;
+    }
+    if (fetch_status == 1)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_fetch failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
         return false;
     }
 
-    password_out = row[0];
-    mysql_free_result(result);
+    if (fetch_status == MYSQL_DATA_TRUNCATED && password_length > password_buffer.size())
+    {
+        password_buffer.resize(password_length);
+        result[0].buffer = password_buffer.data();
+        result[0].buffer_length = password_length;
+        if (mysql_stmt_fetch_column(stmt, &result[0], 0, 0) != 0)
+        {
+            std::ostringstream message;
+            message << "mysql_stmt_fetch_column failed: " << mysql_stmt_error(stmt);
+            set_error(message.str());
+            mysql_stmt_close(stmt);
+            return false;
+        }
+    }
+
+    password_out.assign(password_buffer.data(), password_length);
+    if (with_version && !version_is_null)
+    {
+        password_version_out.assign(version_buffer.data(), version_length);
+    }
+    mysql_stmt_close(stmt);
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_last_error.clear();
@@ -210,28 +469,85 @@ bool CGMysqlPool::user_exists(const std::string &username, bool &exists_out)
     }
 
     MYSQL *conn = guard.get();
-    const std::string escaped_user = escape_string(conn, username);
-    const std::string query =
-        "SELECT 1 FROM user WHERE username='" + escaped_user + "' LIMIT 1";
+    MYSQL_STMT *stmt = mysql_stmt_init(conn);
+    if (stmt == nullptr)
+    {
+        set_error("mysql_stmt_init failed.");
+        return false;
+    }
 
-    if (mysql_query(conn, query.c_str()) != 0)
+    const char *sql = "SELECT 1 FROM user WHERE username=? LIMIT 1";
+    if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
     {
         std::ostringstream message;
-        message << "mysql_query failed: " << mysql_error(conn);
+        message << "mysql_stmt_prepare failed: " << mysql_stmt_error(stmt);
         set_error(message.str());
+        mysql_stmt_close(stmt);
         return false;
     }
 
-    MYSQL_RES *result = mysql_store_result(conn);
-    if (result == nullptr)
+    MYSQL_BIND param[1];
+    unsigned long username_length = 0;
+    bind_string_param(param[0], username, username_length);
+    if (mysql_stmt_bind_param(stmt, param) != 0)
     {
-        set_error("mysql_store_result returned null.");
+        std::ostringstream message;
+        message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
         return false;
     }
 
-    MYSQL_ROW row = mysql_fetch_row(result);
-    exists_out = (row != nullptr);
-    mysql_free_result(result);
+    if (mysql_stmt_execute(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_execute failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    int found_marker = 0;
+    unsigned long found_marker_length = 0;
+    MysqlBool found_marker_is_null = 0;
+    MYSQL_BIND result[1];
+    std::memset(result, 0, sizeof(result));
+    result[0].buffer_type = MYSQL_TYPE_LONG;
+    result[0].buffer = &found_marker;
+    result[0].buffer_length = sizeof(found_marker);
+    result[0].length = &found_marker_length;
+    result[0].is_null = &found_marker_is_null;
+
+    if (mysql_stmt_bind_result(stmt, result) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_store_result(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_store_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    const int fetch_status = mysql_stmt_fetch(stmt);
+    if (fetch_status == 1)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_fetch failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    exists_out = (fetch_status != MYSQL_NO_DATA);
+    mysql_stmt_close(stmt);
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         m_last_error.clear();
@@ -242,9 +558,15 @@ bool CGMysqlPool::user_exists(const std::string &username, bool &exists_out)
 
 bool CGMysqlPool::insert_user(const std::string &username, const std::string &password)
 {
+    return insert_user(username, password, "legacy");
+}
+
+bool CGMysqlPool::insert_user(const std::string &username, const std::string &password, const std::string &password_version)
+{
 #if !CGMYSQL_HAS_CLIENT
     (void)username;
     (void)password;
+    (void)password_version;
     set_error("MySQL client support is unavailable in this build.");
     return false;
 #else
@@ -256,16 +578,24 @@ bool CGMysqlPool::insert_user(const std::string &username, const std::string &pa
     }
 
     MYSQL *conn = guard.get();
-    const std::string escaped_user = escape_string(conn, username);
-    const std::string escaped_password = escape_string(conn, password);
-    const std::string query =
-        "INSERT INTO user(username, passwd) VALUES('" + escaped_user + "','" + escaped_password + "')";
+    MYSQL_BIND param[3];
+    unsigned long username_length = 0;
+    unsigned long password_length = 0;
+    unsigned long version_length = 0;
+    bind_string_param(param[0], username, username_length);
+    bind_string_param(param[1], password, password_length);
+    bind_string_param(param[2], password_version, version_length);
 
-    if (mysql_query(conn, query.c_str()) != 0)
+    std::string error;
+    if (!execute_prepared(conn,
+                          m_password_version_supported
+                              ? "INSERT INTO user(username, passwd, password_version) VALUES(?, ?, ?)"
+                              : "INSERT INTO user(username, passwd) VALUES(?, ?)",
+                          param,
+                          m_password_version_supported ? 3 : 2,
+                          error))
     {
-        std::ostringstream message;
-        message << "mysql_query failed: " << mysql_error(conn);
-        set_error(message.str());
+        set_error(error);
         return false;
     }
 
@@ -279,9 +609,15 @@ bool CGMysqlPool::insert_user(const std::string &username, const std::string &pa
 
 bool CGMysqlPool::update_user_password(const std::string &username, const std::string &password)
 {
+    return update_user_password(username, password, "legacy");
+}
+
+bool CGMysqlPool::update_user_password(const std::string &username, const std::string &password, const std::string &password_version)
+{
 #if !CGMYSQL_HAS_CLIENT
     (void)username;
     (void)password;
+    (void)password_version;
     set_error("MySQL client support is unavailable in this build.");
     return false;
 #else
@@ -293,16 +629,31 @@ bool CGMysqlPool::update_user_password(const std::string &username, const std::s
     }
 
     MYSQL *conn = guard.get();
-    const std::string escaped_user = escape_string(conn, username);
-    const std::string escaped_password = escape_string(conn, password);
-    const std::string query =
-        "UPDATE user SET passwd='" + escaped_password + "' WHERE username='" + escaped_user + "' LIMIT 1";
-
-    if (mysql_query(conn, query.c_str()) != 0)
+    MYSQL_BIND param[3];
+    unsigned long password_length = 0;
+    unsigned long username_length = 0;
+    unsigned long version_length = 0;
+    bind_string_param(param[0], password, password_length);
+    if (m_password_version_supported)
     {
-        std::ostringstream message;
-        message << "mysql_query failed: " << mysql_error(conn);
-        set_error(message.str());
+        bind_string_param(param[1], password_version, version_length);
+        bind_string_param(param[2], username, username_length);
+    }
+    else
+    {
+        bind_string_param(param[1], username, username_length);
+    }
+
+    std::string error;
+    if (!execute_prepared(conn,
+                          m_password_version_supported
+                              ? "UPDATE user SET passwd=?, password_version=? WHERE username=? LIMIT 1"
+                              : "UPDATE user SET passwd=? WHERE username=? LIMIT 1",
+                          param,
+                          m_password_version_supported ? 3 : 2,
+                          error))
+    {
+        set_error(error);
         return false;
     }
 
@@ -318,20 +669,6 @@ void CGMysqlPool::set_error(const std::string &message)
 {
     std::unique_lock<std::mutex> lock(m_mutex);
     m_last_error = message;
-}
-
-std::string CGMysqlPool::escape_string(MYSQL *conn, const std::string &value)
-{
-#if !CGMYSQL_HAS_CLIENT
-    (void)conn;
-    return value;
-#else
-    std::string escaped;
-    escaped.resize(value.size() * 2 + 1);
-    unsigned long size = mysql_real_escape_string(conn, &escaped[0], value.c_str(), static_cast<unsigned long>(value.size()));
-    escaped.resize(size);
-    return escaped;
-#endif
 }
 
 CGMysqlGuard::CGMysqlGuard(CGMysqlPool &pool)

@@ -15,6 +15,7 @@ public:
         std::string version;
         std::map<std::string, std::string> headers;
         std::string body;
+        std::string client_ip;
     };
 
     struct Response

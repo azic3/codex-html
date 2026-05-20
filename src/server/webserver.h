@@ -60,6 +60,11 @@ public:
               const std::string &user,
               const std::string &passWord,
               const std::string &databaseName,
+              const std::string &databaseHost,
+              int databasePort,
+              const std::string &staticRoot,
+              std::size_t maxImageUploadSize,
+              std::size_t maxVideoUploadSize,
               int log_write,
               int opt_linger,
               int trigmode,
@@ -100,15 +105,18 @@ private:
                                                 const std::string &status_text,
                                                 const std::string &content_type,
                                                 const std::string &body) const;
+    HttpConn::Response build_static_file_response(const HttpConn::Request &request, const std::string &path) const;
     std::string build_directory_listing(const std::string &request_path, const std::string &directory_path) const;
     std::string get_content_type(const std::string &path) const;
     bool is_safe_path(const std::string &path) const;
     std::string read_file(const std::string &path) const;
+    std::string read_file_range(const std::string &path, unsigned long long start, unsigned long long length) const;
     bool is_directory(const std::string &path) const;
     bool file_exists(const std::string &path) const;
     std::string join_path(const std::string &base, const std::string &name) const;
     std::string html_escape(const std::string &value) const;
     std::string json_escape_string(const std::string &value) const;
+    std::string url_encode_path_segment(const std::string &value) const;
     bool read_http_request(int sockfd, std::string &request_text);
     bool send_all(int sockfd, const std::string &data) const;
     std::string get_header_value(const HttpConn::Request &request, const std::string &name) const;
@@ -131,15 +139,28 @@ private:
     bool get_session(const HttpConn::Request &request, std::string &username, bool &is_admin) const;
     void destroy_session(const HttpConn::Request &request) const;
     bool current_user_is_admin(const HttpConn::Request &request) const;
+    std::string get_client_ip(int sockfd) const;
     std::string generate_email_verification_code() const;
-    void save_email_verification_code(const std::string &email, const std::string &code) const;
-    bool verify_email_code(const std::string &email, const std::string &code, std::string &detail) const;
+    std::string make_email_code_key(const std::string &phone, const std::string &email) const;
+    void cleanup_expired_email_state(time_t now) const;
+    bool consume_email_code_rate_limit(const std::string &phone, const std::string &ip, std::string &detail) const;
+    void save_email_verification_code(const std::string &phone, const std::string &email, const std::string &code) const;
+    bool verify_email_code(const std::string &phone, const std::string &email, const std::string &code, std::string &detail) const;
 
 private:
     struct EmailVerificationCode
     {
+        std::string phone;
         std::string code;
         time_t expire;
+        int failed_attempts;
+    };
+
+    struct EmailCodeRateState
+    {
+        time_t last_request_at;
+        time_t daily_window_start;
+        int daily_count;
     };
 
     struct UserSession
@@ -163,15 +184,20 @@ private:
     int m_thread_num;
     std::string m_root;
     std::string m_db_host;
+    int m_db_port;
     std::string m_db_user;
     std::string m_db_password;
     std::string m_db_name;
+    std::size_t m_max_image_upload_size;
+    std::size_t m_max_video_upload_size;
     HttpConn m_http_conn;
     mutable CGMysqlPool m_db_pool;
     std::unique_ptr<ThreadPool> m_thread_pool;
     std::unordered_map<int, std::string> m_pending_requests;
     std::unordered_map<int, UtilTimer *> m_conn_timers;
     mutable std::unordered_map<std::string, EmailVerificationCode> m_email_codes;
+    mutable std::unordered_map<std::string, EmailCodeRateState> m_email_code_phone_limits;
+    mutable std::unordered_map<std::string, EmailCodeRateState> m_email_code_ip_limits;
     mutable std::unordered_map<std::string, UserSession> m_sessions;
     mutable std::mutex m_pending_mutex;
     mutable std::mutex m_timer_mutex;

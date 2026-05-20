@@ -46,13 +46,17 @@ public:
     bool available() const;
     std::string last_error() const;
     bool fetch_user_password(const std::string &username, std::string &password_out);
+    bool fetch_user_credentials(const std::string &username,
+                                std::string &password_out,
+                                std::string &password_version_out);
     bool user_exists(const std::string &username, bool &exists_out);
     bool insert_user(const std::string &username, const std::string &password);
+    bool insert_user(const std::string &username, const std::string &password, const std::string &password_version);
     bool update_user_password(const std::string &username, const std::string &password);
+    bool update_user_password(const std::string &username, const std::string &password, const std::string &password_version);
 
 private:
     void set_error(const std::string &message);
-    std::string escape_string(MYSQL *conn, const std::string &value);
 
 private:
     std::queue<MYSQL *> m_connections;
@@ -66,6 +70,7 @@ private:
     unsigned int m_port;
     int m_max_conn;
     bool m_initialized;
+    bool m_password_version_supported;
 };
 
 class CGMysqlGuard

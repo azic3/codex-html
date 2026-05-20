@@ -9,10 +9,13 @@ public:
     static bool hash_password(const std::string &password, std::string &hash_out, std::string &detail);
     static bool verify_password(const std::string &password,
                                 const std::string &stored_password,
+                                const std::string &stored_version,
                                 bool &matched,
                                 bool &needs_rehash,
                                 std::string &detail);
     static bool is_password_hash(const std::string &stored_password);
+    static std::string current_version();
+    static std::string detect_version(const std::string &stored_password, const std::string &stored_version);
 };
 
 #endif

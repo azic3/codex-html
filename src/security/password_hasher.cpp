@@ -19,11 +19,14 @@
 
 namespace
 {
-const char kSaltAlphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789./";
+const char kSaltAlphabet[] = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const char kPasswordVersionBcrypt[] = "bcrypt";
+const char kPasswordVersionSha512Crypt[] = "sha512_crypt";
+const char kPasswordVersionPlaintext[] = "plaintext";
 
-std::string random_salt()
+std::string random_salt(std::size_t length)
 {
-    unsigned char bytes[16] = {0};
+    unsigned char bytes[32] = {0};
     std::ifstream random("/dev/urandom", std::ios::in | std::ios::binary);
     if (random.good())
     {
@@ -40,23 +43,53 @@ std::string random_salt()
     }
 
     std::string salt;
-    salt.reserve(sizeof(bytes));
-    for (std::size_t i = 0; i < sizeof(bytes); ++i)
+    salt.reserve(length);
+    for (std::size_t i = 0; i < length; ++i)
     {
-        salt.push_back(kSaltAlphabet[bytes[i] % (sizeof(kSaltAlphabet) - 1)]);
+        salt.push_back(kSaltAlphabet[bytes[i % sizeof(bytes)] % (sizeof(kSaltAlphabet) - 1)]);
     }
     return salt;
 }
 
-std::string crypt_salt()
+std::string bcrypt_salt()
 {
-    return "$6$rounds=100000$" + random_salt() + "$";
+    return "$2b$12$" + random_salt(22);
 }
 }
 
 bool PasswordHasher::is_password_hash(const std::string &stored_password)
 {
-    return stored_password.compare(0, 3, "$6$") == 0;
+    return stored_password.compare(0, 4, "$2b$") == 0 ||
+           stored_password.compare(0, 4, "$2a$") == 0 ||
+           stored_password.compare(0, 4, "$2y$") == 0 ||
+           stored_password.compare(0, 3, "$6$") == 0;
+}
+
+std::string PasswordHasher::current_version()
+{
+    return kPasswordVersionBcrypt;
+}
+
+std::string PasswordHasher::detect_version(const std::string &stored_password, const std::string &stored_version)
+{
+    if (stored_password.compare(0, 4, "$2b$") == 0 ||
+        stored_password.compare(0, 4, "$2a$") == 0 ||
+        stored_password.compare(0, 4, "$2y$") == 0)
+    {
+        return kPasswordVersionBcrypt;
+    }
+
+    if (stored_password.compare(0, 3, "$6$") == 0)
+    {
+        return kPasswordVersionSha512Crypt;
+    }
+
+    if (!stored_version.empty() && stored_version != "legacy")
+    {
+        return stored_version;
+    }
+
+    return kPasswordVersionPlaintext;
 }
 
 bool PasswordHasher::hash_password(const std::string &password, std::string &hash_out, std::string &detail)
@@ -67,15 +100,15 @@ bool PasswordHasher::hash_password(const std::string &password, std::string &has
     detail = "system crypt password hashing support is unavailable in this build";
     return false;
 #else
-    const std::string salt = crypt_salt();
+    const std::string salt = bcrypt_salt();
     struct crypt_data data;
     data.initialized = 0;
 
     char *result = crypt_r(password.c_str(), salt.c_str(), &data);
-    if (result == nullptr || result[0] == '\0')
+    if (result == nullptr || result[0] == '\0' || result[0] == '*')
     {
         hash_out.clear();
-        detail = "password hashing failed";
+        detail = "bcrypt password hashing failed; check that libcrypt supports bcrypt";
         return false;
     }
 
@@ -87,14 +120,16 @@ bool PasswordHasher::hash_password(const std::string &password, std::string &has
 
 bool PasswordHasher::verify_password(const std::string &password,
                                      const std::string &stored_password,
+                                     const std::string &stored_version,
                                      bool &matched,
                                      bool &needs_rehash,
                                      std::string &detail)
 {
     matched = false;
     needs_rehash = false;
+    const std::string version = detect_version(stored_password, stored_version);
 
-    if (!is_password_hash(stored_password))
+    if (version == kPasswordVersionPlaintext)
     {
         matched = (password == stored_password);
         needs_rehash = matched;
@@ -111,13 +146,14 @@ bool PasswordHasher::verify_password(const std::string &password,
     data.initialized = 0;
 
     char *result = crypt_r(password.c_str(), stored_password.c_str(), &data);
-    if (result == nullptr || result[0] == '\0')
+    if (result == nullptr || result[0] == '\0' || result[0] == '*')
     {
         detail = "password verification failed";
         return false;
     }
 
     matched = (stored_password == result);
+    needs_rehash = matched && version != current_version();
     detail.clear();
     return true;
 #endif

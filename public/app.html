@@ -7,6 +7,21 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body class="image-library-page">
+  <div class="fx-bg" aria-hidden="true"></div>
+  <div class="fx-particles" aria-hidden="true">
+    <span style="--x: 8%; --s: 2px; --d: 13s; --delay: 0s;"></span>
+    <span style="--x: 15%; --s: 1px; --d: 17s; --delay: -5s;"></span>
+    <span style="--x: 24%; --s: 3px; --d: 22s; --delay: -9s;"></span>
+    <span style="--x: 32%; --s: 2px; --d: 15s; --delay: -2s;"></span>
+    <span style="--x: 41%; --s: 1px; --d: 19s; --delay: -11s;"></span>
+    <span style="--x: 49%; --s: 2px; --d: 16s; --delay: -7s;"></span>
+    <span style="--x: 58%; --s: 3px; --d: 24s; --delay: -4s;"></span>
+    <span style="--x: 66%; --s: 1px; --d: 18s; --delay: -13s;"></span>
+    <span style="--x: 73%; --s: 2px; --d: 21s; --delay: -8s;"></span>
+    <span style="--x: 82%; --s: 1px; --d: 14s; --delay: -3s;"></span>
+    <span style="--x: 91%; --s: 2px; --d: 20s; --delay: -10s;"></span>
+    <span style="--x: 96%; --s: 3px; --d: 25s; --delay: -6s;"></span>
+  </div>
   <div class="video-layout">
     <aside class="video-sidebar">
       <div class="video-brand">
@@ -16,13 +31,10 @@
       </div>
 
       <nav class="video-nav" aria-label="主导航">
-        <span class="video-nav-section">媒体库</span>
+        <span class="video-nav-section">· 媒体库 ·</span>
         <a class="active" href="/app.html"><span class="nav-icon">I</span>图片库</a>
         <a href="/video.html"><span class="nav-icon">V</span>视频库</a>
-        <span class="video-nav-section">目录</span>
-        <a href="/images/"><span class="nav-icon">D</span>图片目录</a>
-        <a href="/videos/"><span class="nav-icon">F</span>视频目录</a>
-        <span class="video-nav-section">账户</span>
+        <span class="video-nav-section">· 账户 ·</span>
         <a href="/profile.html"><span class="nav-icon">U</span>个人中心</a>
       </nav>
 
@@ -32,20 +44,23 @@
     <main class="video-main">
       <header class="video-topbar">
         <div class="video-page-title">
-          <span>IMAGES</span>
+          <span>· 映像阁 ·</span>
           <h1>图片库</h1>
         </div>
         <div class="video-topbar-actions">
           <button class="video-btn ghost" type="button" id="open-first-image">预览首图</button>
-          <a class="video-btn ghost" href="/images/">打开目录</a>
           <button class="video-btn primary" type="button" id="image-upload-trigger" hidden>上传图片</button>
         </div>
       </header>
 
       <section class="video-content image-content">
         <section class="image-hero-card">
+          <div class="corner-deco c-tl"></div>
+          <div class="corner-deco c-tr"></div>
+          <div class="corner-deco c-bl"></div>
+          <div class="corner-deco c-br"></div>
           <div class="image-hero-copy">
-            <span class="image-hero-tag">本地资源</span>
+            <span class="image-hero-tag">· 本地资源 ·</span>
             <h2>管理上传后的图片素材</h2>
             <p>上传成功的图片会保存到 <code>/images/</code>，并显示在下方列表中。支持预览、下载、复制路径和格式筛选。</p>
             <div class="image-hero-meta">
@@ -61,6 +76,10 @@
         </section>
 
         <section class="image-upload-bar" id="upload-panel" hidden>
+          <div class="corner-deco c-tl"></div>
+          <div class="corner-deco c-tr"></div>
+          <div class="corner-deco c-bl"></div>
+          <div class="corner-deco c-br"></div>
           <form class="image-upload-form" id="upload-form">
             <label class="image-upload-drop" id="image-drop-zone">
               <input type="file" id="upload-image" name="image" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.svg,image/*">
@@ -89,7 +108,7 @@
         <section class="image-library">
           <div class="video-section-head">
             <div>
-              <span>LIBRARY</span>
+              <span>· LIBRARY ·</span>
               <h2>图片列表 <b id="image-count">0</b></h2>
             </div>
             <p>按最新资源优先展示</p>

@@ -163,7 +163,13 @@
   });
 
   registerSendCodeBtn.addEventListener("click", function () {
+    var phone = document.getElementById("register-phone").value.trim();
     var email = document.getElementById("register-email").value.trim();
+
+    if (!isValidPhone(phone)) {
+      setStatus("请先输入正确的手机号。", "err");
+      return;
+    }
 
     if (!isValidEmail(email)) {
       setStatus("请先输入正确的邮箱地址。", "err");
@@ -174,6 +180,7 @@
     setStatus("正在发送邮箱验证码...", "");
 
     var body = new URLSearchParams();
+    body.set("phone", phone);
     body.set("email", email);
 
     postForm("/api/send-email-code", body)
@@ -324,7 +331,13 @@
   });
 
   sendCodeBtn.addEventListener("click", function () {
+    var phone = document.getElementById("reset-phone").value.trim();
     var email = document.getElementById("reset-email").value.trim();
+
+    if (!isValidPhone(phone)) {
+      setStatus("请先输入正确的手机号。", "err");
+      return;
+    }
 
     if (!isValidEmail(email)) {
       setStatus("请先输入正确的邮箱地址。", "err");
@@ -335,6 +348,7 @@
     setStatus("正在发送找回密码验证码...", "");
 
     var body = new URLSearchParams();
+    body.set("phone", phone);
     body.set("email", email);
 
     postForm("/api/send-email-code", body)

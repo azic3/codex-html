@@ -74,6 +74,17 @@
     return match[1] === "jpeg" ? "jpg" : match[1];
   }
 
+  function displayFileName(item) {
+    var value = item.title || item.path || item.url || "";
+    var filename = String(value).split("?")[0].split("#")[0].split("/").pop();
+
+    try {
+      return decodeURIComponent(filename);
+    } catch (error) {
+      return filename;
+    }
+  }
+
   function getDownloadName(item) {
     var source = item.path || item.url || item.title || "image";
     var name = source.split("/").pop() || item.title || "image";
@@ -280,7 +291,7 @@
       image.src = item.url;
       image.alt = item.title || "";
       title.textContent = item.title || item.url;
-      path.textContent = item.path || item.url;
+      path.textContent = displayFileName(item);
       size.textContent = formatFileSize(item.size);
       format.textContent = ext;
       isNew.hidden = index > 1;

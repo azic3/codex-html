@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
+#include <climits>
 #include <csignal>
 #include <cctype>
 #include <cstdio>
@@ -15,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <netinet/in.h>
 #include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -27,10 +29,149 @@ namespace
 const std::size_t kReadBufferSize = 4096;
 const int kConnectionTimeout = 3 * TIMESLOT;
 const int kEmailCodeTimeout = 5 * 60;
-const std::size_t kMaxImageUploadSize = 20 * 1024 * 1024;
-const std::size_t kMaxVideoUploadSize = 1024ULL * 1024 * 1024;
+const int kEmailCodeRequestInterval = 60;
+const int kEmailCodeDailyWindow = 24 * 60 * 60;
+const int kEmailCodeDailyLimit = 10;
+const int kEmailCodeMaxFailedAttempts = 5;
+const std::size_t kDefaultMaxImageUploadSize = 20 * 1024 * 1024;
+const std::size_t kDefaultMaxVideoUploadSize = 1024ULL * 1024 * 1024;
+const unsigned long long kVideoRangeChunkSize = 1024ULL * 1024ULL;
 const char *kSessionCookieName = "XIAOCHEN_SESSION";
 int g_signal_pipefd[2] = {-1, -1};
+
+enum RangeParseStatus
+{
+    RANGE_NOT_REQUESTED,
+    RANGE_VALID,
+    RANGE_INVALID
+};
+
+std::string trim_whitespace(const std::string &value)
+{
+    std::size_t start = 0;
+    while (start < value.size() &&
+           (value[start] == ' ' || value[start] == '\t' || value[start] == '\r' || value[start] == '\n'))
+    {
+        ++start;
+    }
+
+    std::size_t end = value.size();
+    while (end > start &&
+           (value[end - 1] == ' ' || value[end - 1] == '\t' || value[end - 1] == '\r' || value[end - 1] == '\n'))
+    {
+        --end;
+    }
+
+    return value.substr(start, end - start);
+}
+
+bool parse_unsigned_number(const std::string &value, unsigned long long &number)
+{
+    if (value.empty())
+    {
+        return false;
+    }
+
+    unsigned long long parsed = 0;
+    for (std::size_t i = 0; i < value.size(); ++i)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(value[i])))
+        {
+            return false;
+        }
+
+        const unsigned int digit = static_cast<unsigned int>(value[i] - '0');
+        if (parsed > (ULLONG_MAX - digit) / 10)
+        {
+            return false;
+        }
+        parsed = parsed * 10 + digit;
+    }
+
+    number = parsed;
+    return true;
+}
+
+RangeParseStatus parse_range_header(const std::string &header,
+                                    unsigned long long total_size,
+                                    unsigned long long &start,
+                                    unsigned long long &end)
+{
+    if (header.empty())
+    {
+        return RANGE_NOT_REQUESTED;
+    }
+
+    std::string value = trim_whitespace(header);
+    for (std::size_t i = 0; i < value.size() && i < 6; ++i)
+    {
+        value[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(value[i])));
+    }
+
+    const std::string prefix = "bytes=";
+    if (value.compare(0, prefix.size(), prefix) != 0)
+    {
+        return RANGE_NOT_REQUESTED;
+    }
+
+    const std::string range_spec = trim_whitespace(value.substr(prefix.size()));
+    if (range_spec.find(',') != std::string::npos || total_size == 0)
+    {
+        return RANGE_INVALID;
+    }
+
+    const std::size_t dash = range_spec.find('-');
+    if (dash == std::string::npos)
+    {
+        return RANGE_INVALID;
+    }
+
+    const std::string start_text = trim_whitespace(range_spec.substr(0, dash));
+    const std::string end_text = trim_whitespace(range_spec.substr(dash + 1));
+    if (start_text.empty() && end_text.empty())
+    {
+        return RANGE_INVALID;
+    }
+
+    if (start_text.empty())
+    {
+        unsigned long long suffix_length = 0;
+        if (!parse_unsigned_number(end_text, suffix_length) || suffix_length == 0)
+        {
+            return RANGE_INVALID;
+        }
+
+        start = suffix_length >= total_size ? 0 : total_size - suffix_length;
+        end = total_size - 1;
+        return RANGE_VALID;
+    }
+
+    if (!parse_unsigned_number(start_text, start))
+    {
+        return RANGE_INVALID;
+    }
+
+    if (end_text.empty())
+    {
+        end = total_size - 1;
+    }
+    else if (!parse_unsigned_number(end_text, end))
+    {
+        return RANGE_INVALID;
+    }
+
+    if (start >= total_size || start > end)
+    {
+        return RANGE_INVALID;
+    }
+
+    if (end >= total_size)
+    {
+        end = total_size - 1;
+    }
+
+    return RANGE_VALID;
+}
 
 int set_nonblocking(int fd)
 {
@@ -192,6 +333,33 @@ std::string json_escape(const std::string &value)
         }
     }
     return escaped;
+}
+
+std::string format_byte_limit(std::size_t bytes)
+{
+    const std::size_t gb = 1024ULL * 1024ULL * 1024ULL;
+    const std::size_t mb = 1024ULL * 1024ULL;
+    const std::size_t kb = 1024ULL;
+    std::ostringstream label;
+
+    if (bytes >= gb && bytes % gb == 0)
+    {
+        label << (bytes / gb) << "GB";
+    }
+    else if (bytes >= mb && bytes % mb == 0)
+    {
+        label << (bytes / mb) << "MB";
+    }
+    else if (bytes >= kb && bytes % kb == 0)
+    {
+        label << (bytes / kb) << "KB";
+    }
+    else
+    {
+        label << bytes << " bytes";
+    }
+
+    return label.str();
 }
 
 std::string random_session_token()
@@ -464,9 +632,12 @@ WebServer::WebServer()
       m_thread_num(4),
       m_root("."),
       m_db_host("127.0.0.1"),
+      m_db_port(3306),
       m_db_user("root"),
       m_db_password("password"),
-      m_db_name("qgydb")
+      m_db_name("qgydb"),
+      m_max_image_upload_size(kDefaultMaxImageUploadSize),
+      m_max_video_upload_size(kDefaultMaxVideoUploadSize)
 {
     std::srand(static_cast<unsigned int>(std::time(nullptr) ^ getpid()));
     m_pipefd[0] = -1;
@@ -497,6 +668,11 @@ void WebServer::init(int port,
                      const std::string &user,
                      const std::string &passWord,
                      const std::string &databaseName,
+                     const std::string &databaseHost,
+                     int databasePort,
+                     const std::string &staticRoot,
+                     std::size_t maxImageUploadSize,
+                     std::size_t maxVideoUploadSize,
                      int log_write,
                      int opt_linger,
                      int trigmode,
@@ -516,9 +692,14 @@ void WebServer::init(int port,
     m_db_user = user;
     m_db_password = passWord;
     m_db_name = databaseName;
+    m_db_host = databaseHost.empty() ? "127.0.0.1" : databaseHost;
+    m_db_port = databasePort > 0 ? databasePort : 3306;
+    m_root = staticRoot;
+    m_max_image_upload_size = maxImageUploadSize > 0 ? maxImageUploadSize : kDefaultMaxImageUploadSize;
+    m_max_video_upload_size = maxVideoUploadSize > 0 ? maxVideoUploadSize : kDefaultMaxVideoUploadSize;
 
     trig_mode();
-    m_db_pool.init(m_db_host, 3306, m_db_user, m_db_password, m_db_name, m_sql_num);
+    m_db_pool.init(m_db_host, m_db_port, m_db_user, m_db_password, m_db_name, m_sql_num);
     m_thread_pool.reset(new ThreadPool(static_cast<std::size_t>(m_thread_num)));
 }
 
@@ -685,13 +866,23 @@ void WebServer::eventListen()
 
     alarm(TIMESLOT);
 
-    char cwd[512] = {0};
-    if (getcwd(cwd, sizeof(cwd)) != nullptr)
+    if (m_root.empty())
     {
-        m_root = std::string(cwd) + "/public";
+        char cwd[512] = {0};
+        if (getcwd(cwd, sizeof(cwd)) != nullptr)
+        {
+            m_root = std::string(cwd) + "/public";
+        }
+        else
+        {
+            m_root = "public";
+        }
     }
 
     AppLogger::info("server listening on 0.0.0.0:" + std::to_string(m_port));
+    AppLogger::info("static root: " + m_root);
+    AppLogger::info("upload limits image=" + format_byte_limit(m_max_image_upload_size) +
+                    " video=" + format_byte_limit(m_max_video_upload_size));
     if (!m_db_pool.available())
     {
         AppLogger::error("MySQL pool unavailable: " + m_db_pool.last_error());
@@ -772,6 +963,8 @@ void WebServer::deal_timer(int sockfd)
 
 void WebServer::timer_handler()
 {
+    cleanup_expired_email_state(time(nullptr));
+
     std::vector<int> expired_fds;
     {
         std::unique_lock<std::mutex> lock(m_timer_mutex);
@@ -803,6 +996,27 @@ std::string WebServer::read_file(const std::string &path) const
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+std::string WebServer::read_file_range(const std::string &path, unsigned long long start, unsigned long long length) const
+{
+    std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+    if (!input.is_open())
+    {
+        return std::string();
+    }
+
+    input.seekg(static_cast<std::streamoff>(start), std::ios::beg);
+    if (!input.good())
+    {
+        return std::string();
+    }
+
+    std::string data;
+    data.resize(static_cast<std::size_t>(length));
+    input.read(&data[0], static_cast<std::streamsize>(data.size()));
+    data.resize(static_cast<std::size_t>(input.gcount()));
+    return data;
 }
 
 bool WebServer::file_exists(const std::string &path) const
@@ -864,6 +1078,33 @@ std::string WebServer::html_escape(const std::string &value) const
 std::string WebServer::json_escape_string(const std::string &value) const
 {
     return json_escape(value);
+}
+
+std::string WebServer::url_encode_path_segment(const std::string &value) const
+{
+    const char *hex = "0123456789ABCDEF";
+    std::string encoded;
+    encoded.reserve(value.size());
+
+    for (std::size_t i = 0; i < value.size(); ++i)
+    {
+        const unsigned char ch = static_cast<unsigned char>(value[i]);
+        if ((ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '-' || ch == '_' || ch == '.' || ch == '~')
+        {
+            encoded.push_back(static_cast<char>(ch));
+        }
+        else
+        {
+            encoded.push_back('%');
+            encoded.push_back(hex[ch >> 4]);
+            encoded.push_back(hex[ch & 0x0F]);
+        }
+    }
+
+    return encoded;
 }
 
 std::string WebServer::build_directory_listing(const std::string &request_path, const std::string &directory_path) const
@@ -974,7 +1215,7 @@ std::string WebServer::build_directory_listing(const std::string &request_path, 
         {
             href += "/";
         }
-        href += name;
+        href += url_encode_path_segment(name);
         if (directory)
         {
             href += "/";
@@ -1118,6 +1359,70 @@ HttpConn::Response WebServer::build_response_with_body(int status_code,
     return response;
 }
 
+HttpConn::Response WebServer::build_static_file_response(const HttpConn::Request &request, const std::string &path) const
+{
+    const std::string content_type = get_content_type(path);
+    HttpConn::Response response;
+    response.content_type = content_type;
+
+    if (!is_video_extension(path))
+    {
+        return build_response_with_body(200, "OK", content_type, read_file(path));
+    }
+
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+    {
+        return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
+    }
+
+    const unsigned long long total_size = static_cast<unsigned long long>(st.st_size);
+    unsigned long long start = 0;
+    unsigned long long end = 0;
+    const RangeParseStatus range_status = parse_range_header(get_header_value(request, "Range"), total_size, start, end);
+
+    response.headers["Accept-Ranges"] = "bytes";
+
+    if (range_status == RANGE_INVALID)
+    {
+        response.status_code = 416;
+        response.status_text = "Range Not Satisfiable";
+        response.body.clear();
+        response.headers["Content-Range"] = "bytes */" + std::to_string(total_size);
+        return response;
+    }
+
+    if (range_status == RANGE_VALID)
+    {
+        if (end >= start && end - start + 1 > kVideoRangeChunkSize)
+        {
+            end = start + kVideoRangeChunkSize - 1;
+            if (end >= total_size)
+            {
+                end = total_size - 1;
+            }
+        }
+
+        const unsigned long long length = end - start + 1;
+        response.status_code = 206;
+        response.status_text = "Partial Content";
+        response.body = read_file_range(path, start, length);
+        if (static_cast<unsigned long long>(response.body.size()) != length)
+        {
+            return build_error_response(500, "Internal Server Error", "<html><body><h1>500 Internal Server Error</h1></body></html>");
+        }
+        response.headers["Content-Range"] = "bytes " + std::to_string(start) + "-" +
+                                            std::to_string(end) + "/" +
+                                            std::to_string(total_size);
+        return response;
+    }
+
+    response.status_code = 200;
+    response.status_text = "OK";
+    response.body = read_file(path);
+    return response;
+}
+
 HttpConn::Response WebServer::build_error_response(int status_code,
                                                    const std::string &status_text,
                                                    const std::string &body) const
@@ -1142,7 +1447,8 @@ bool WebServer::validate_user_with_db(const std::string &username,
     }
 
     std::string db_password;
-    if (!m_db_pool.fetch_user_password(username, db_password))
+    std::string password_version;
+    if (!m_db_pool.fetch_user_credentials(username, db_password, password_version))
     {
         detail = m_db_pool.last_error();
         return false;
@@ -1150,7 +1456,7 @@ bool WebServer::validate_user_with_db(const std::string &username,
 
     bool matched = false;
     bool needs_rehash = false;
-    if (!PasswordHasher::verify_password(password, db_password, matched, needs_rehash, detail))
+    if (!PasswordHasher::verify_password(password, db_password, password_version, matched, needs_rehash, detail))
     {
         return false;
     }
@@ -1167,7 +1473,7 @@ bool WebServer::validate_user_with_db(const std::string &username,
         std::string hash_detail;
         if (PasswordHasher::hash_password(password, hashed_password, hash_detail))
         {
-            m_db_pool.update_user_password(username, hashed_password);
+            m_db_pool.update_user_password(username, hashed_password, PasswordHasher::current_version());
         }
     }
 
@@ -1210,7 +1516,7 @@ bool WebServer::register_user_with_db(const std::string &username,
         return false;
     }
 
-    if (!m_db_pool.insert_user(username, hashed_password))
+    if (!m_db_pool.insert_user(username, hashed_password, PasswordHasher::current_version()))
     {
         detail = m_db_pool.last_error();
         return false;
@@ -1255,7 +1561,7 @@ bool WebServer::reset_user_password_with_db(const std::string &username,
         return false;
     }
 
-    if (!m_db_pool.update_user_password(username, hashed_password))
+    if (!m_db_pool.update_user_password(username, hashed_password, PasswordHasher::current_version()))
     {
         detail = m_db_pool.last_error();
         return false;
@@ -1324,6 +1630,37 @@ bool WebServer::current_user_is_admin(const HttpConn::Request &request) const
     return get_session(request, username, is_admin) && is_admin;
 }
 
+std::string WebServer::get_client_ip(int sockfd) const
+{
+    sockaddr_storage address;
+    std::memset(&address, 0, sizeof(address));
+    socklen_t address_length = sizeof(address);
+    if (getpeername(sockfd, reinterpret_cast<sockaddr *>(&address), &address_length) != 0)
+    {
+        return "unknown";
+    }
+
+    char buffer[INET6_ADDRSTRLEN] = {0};
+    if (address.ss_family == AF_INET)
+    {
+        const sockaddr_in *ipv4 = reinterpret_cast<const sockaddr_in *>(&address);
+        if (inet_ntop(AF_INET, &ipv4->sin_addr, buffer, sizeof(buffer)) != nullptr)
+        {
+            return buffer;
+        }
+    }
+    else if (address.ss_family == AF_INET6)
+    {
+        const sockaddr_in6 *ipv6 = reinterpret_cast<const sockaddr_in6 *>(&address);
+        if (inet_ntop(AF_INET6, &ipv6->sin6_addr, buffer, sizeof(buffer)) != nullptr)
+        {
+            return buffer;
+        }
+    }
+
+    return "unknown";
+}
+
 std::string WebServer::generate_email_verification_code() const
 {
     const int value = 100000 + std::rand() % 900000;
@@ -1332,32 +1669,125 @@ std::string WebServer::generate_email_verification_code() const
     return code_stream.str();
 }
 
-void WebServer::save_email_verification_code(const std::string &email, const std::string &code) const
+std::string WebServer::make_email_code_key(const std::string &phone, const std::string &email) const
 {
-    EmailVerificationCode record;
-    record.code = code;
-    record.expire = time(nullptr) + kEmailCodeTimeout;
-
-    std::unique_lock<std::mutex> lock(m_email_code_mutex);
-    m_email_codes[email] = record;
+    return phone + "\n" + email;
 }
 
-bool WebServer::verify_email_code(const std::string &email, const std::string &code, std::string &detail) const
+void WebServer::cleanup_expired_email_state(time_t now) const
 {
+    std::unique_lock<std::mutex> lock(m_email_code_mutex);
+
+    for (std::unordered_map<std::string, EmailVerificationCode>::iterator it = m_email_codes.begin();
+         it != m_email_codes.end();)
+    {
+        if (it->second.expire < now)
+        {
+            it = m_email_codes.erase(it);
+            continue;
+        }
+        ++it;
+    }
+
+    for (std::unordered_map<std::string, EmailCodeRateState>::iterator it = m_email_code_phone_limits.begin();
+         it != m_email_code_phone_limits.end();)
+    {
+        if (it->second.last_request_at > 0 && now - it->second.last_request_at >= kEmailCodeDailyWindow)
+        {
+            it = m_email_code_phone_limits.erase(it);
+            continue;
+        }
+        ++it;
+    }
+
+    for (std::unordered_map<std::string, EmailCodeRateState>::iterator it = m_email_code_ip_limits.begin();
+         it != m_email_code_ip_limits.end();)
+    {
+        if (it->second.last_request_at > 0 && now - it->second.last_request_at >= kEmailCodeDailyWindow)
+        {
+            it = m_email_code_ip_limits.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
+bool WebServer::consume_email_code_rate_limit(const std::string &phone, const std::string &ip, std::string &detail) const
+{
+    const time_t now = time(nullptr);
+    std::unique_lock<std::mutex> lock(m_email_code_mutex);
+
+    EmailCodeRateState &phone_state = m_email_code_phone_limits[phone];
+    EmailCodeRateState &ip_state = m_email_code_ip_limits[ip.empty() ? "unknown" : ip];
+
+    if (phone_state.daily_window_start == 0 || now - phone_state.daily_window_start >= kEmailCodeDailyWindow)
+    {
+        phone_state.daily_window_start = now;
+        phone_state.daily_count = 0;
+    }
+    if (ip_state.daily_window_start == 0 || now - ip_state.daily_window_start >= kEmailCodeDailyWindow)
+    {
+        ip_state.daily_window_start = now;
+        ip_state.daily_count = 0;
+    }
+
+    if (phone_state.last_request_at > 0 && now - phone_state.last_request_at < kEmailCodeRequestInterval)
+    {
+        detail = "verification code can only be requested once per minute for this phone number";
+        return false;
+    }
+    if (ip_state.last_request_at > 0 && now - ip_state.last_request_at < kEmailCodeRequestInterval)
+    {
+        detail = "verification code can only be requested once per minute from this IP";
+        return false;
+    }
+    if (phone_state.daily_count >= kEmailCodeDailyLimit)
+    {
+        detail = "verification code daily request limit reached for this phone number";
+        return false;
+    }
+    if (ip_state.daily_count >= kEmailCodeDailyLimit)
+    {
+        detail = "verification code daily request limit reached for this IP";
+        return false;
+    }
+
+    phone_state.last_request_at = now;
+    ++phone_state.daily_count;
+    ip_state.last_request_at = now;
+    ++ip_state.daily_count;
+    detail.clear();
+    return true;
+}
+
+void WebServer::save_email_verification_code(const std::string &phone, const std::string &email, const std::string &code) const
+{
+    EmailVerificationCode record;
+    record.phone = phone;
+    record.code = code;
+    record.expire = time(nullptr) + kEmailCodeTimeout;
+    record.failed_attempts = 0;
+
+    std::unique_lock<std::mutex> lock(m_email_code_mutex);
+    m_email_codes[make_email_code_key(phone, email)] = record;
+}
+
+bool WebServer::verify_email_code(const std::string &phone, const std::string &email, const std::string &code, std::string &detail) const
+{
+    if (!is_valid_phone(phone))
+    {
+        detail = "phone number is invalid";
+        return false;
+    }
+
     if (!is_valid_email(email))
     {
         detail = "email is invalid";
         return false;
     }
 
-    if (!is_six_digit_code(code))
-    {
-        detail = "verification code is invalid";
-        return false;
-    }
-
     std::unique_lock<std::mutex> lock(m_email_code_mutex);
-    std::unordered_map<std::string, EmailVerificationCode>::iterator it = m_email_codes.find(email);
+    std::unordered_map<std::string, EmailVerificationCode>::iterator it = m_email_codes.find(make_email_code_key(phone, email));
     if (it == m_email_codes.end())
     {
         detail = "verification code was not sent";
@@ -1371,9 +1801,16 @@ bool WebServer::verify_email_code(const std::string &email, const std::string &c
         return false;
     }
 
-    if (it->second.code != code)
+    if (!is_six_digit_code(code) || it->second.code != code)
     {
-        detail = "verification code mismatch";
+        ++it->second.failed_attempts;
+        if (it->second.failed_attempts >= kEmailCodeMaxFailedAttempts)
+        {
+            m_email_codes.erase(it);
+            detail = "verification code failed too many times";
+            return false;
+        }
+        detail = is_six_digit_code(code) ? "verification code mismatch" : "verification code is invalid";
         return false;
     }
 
@@ -1423,19 +1860,45 @@ std::string WebServer::sanitize_upload_filename(const std::string &filename) con
     for (std::size_t i = 0; i < base.size(); ++i)
     {
         const unsigned char ch = static_cast<unsigned char>(base[i]);
-        if (std::isalnum(ch) || ch == '.' || ch == '_' || ch == '-')
+        if (ch == '\0' || ch < 32 || ch == 127 ||
+            ch == '/' || ch == '\\' || ch == ':' || ch == '*' ||
+            ch == '?' || ch == '"' || ch == '<' || ch == '>' || ch == '|')
         {
-            cleaned.push_back(base[i]);
+            cleaned.push_back('_');
+            continue;
+        }
+
+        cleaned.push_back(base[i]);
+    }
+
+    while (!cleaned.empty() && (cleaned[0] == ' ' || cleaned[0] == '\t' || cleaned[0] == '.'))
+    {
+        cleaned.erase(0, 1);
+    }
+
+    while (!cleaned.empty() && (cleaned[cleaned.size() - 1] == ' ' || cleaned[cleaned.size() - 1] == '\t'))
+    {
+        cleaned.erase(cleaned.size() - 1);
+    }
+
+    if (cleaned.empty() || cleaned == "." || cleaned == "..")
+    {
+        cleaned = "upload_image";
+    }
+
+    const std::size_t max_filename_bytes = 180;
+    if (cleaned.size() > max_filename_bytes)
+    {
+        const std::size_t dot = cleaned.find_last_of('.');
+        if (dot != std::string::npos && dot > 0 && cleaned.size() - dot <= 16)
+        {
+            const std::string ext = cleaned.substr(dot);
+            cleaned = cleaned.substr(0, max_filename_bytes - ext.size()) + ext;
         }
         else
         {
-            cleaned.push_back('_');
+            cleaned = cleaned.substr(0, max_filename_bytes);
         }
-    }
-
-    if (cleaned.empty())
-    {
-        cleaned = "upload_image";
     }
 
     return cleaned;
@@ -1547,7 +2010,7 @@ std::string WebServer::build_images_json() const
     body << "[";
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
-        const std::string url = "/images/" + entries[i].name;
+        const std::string url = "/images/" + url_encode_path_segment(entries[i].name);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
@@ -1619,7 +2082,7 @@ std::string WebServer::build_videos_json() const
     body << "[";
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
-        const std::string url = "/videos/" + entries[i].name;
+        const std::string url = "/videos/" + url_encode_path_segment(entries[i].name);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
@@ -1648,8 +2111,8 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
                                     std::string &saved_path,
                                     std::string &detail) const
 {
-    const std::size_t max_upload_size = expect_image ? kMaxImageUploadSize : kMaxVideoUploadSize;
-    const char *max_upload_label = expect_image ? "20MB" : "1GB";
+    const std::size_t max_upload_size = expect_image ? m_max_image_upload_size : m_max_video_upload_size;
+    const std::string max_upload_label = format_byte_limit(max_upload_size);
 
     if (request.body.size() > max_upload_size + 4096)
     {
@@ -1773,11 +2236,13 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
 
     const std::string final_name = unique_upload_filename(directory_name, safe_filename);
     const std::string full_path = join_path(directory_path, final_name);
+    errno = 0;
     std::ofstream output(full_path.c_str(), std::ios::out | std::ios::binary);
     if (!output.is_open())
     {
-        detail = expect_image ? "failed to open target image file"
-                              : "failed to open target video file";
+        detail = std::string(expect_image ? "failed to open target image file: "
+                                          : "failed to open target video file: ") +
+                 full_path + " errno=" + std::to_string(errno);
         return false;
     }
 
@@ -1792,7 +2257,7 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
         return false;
     }
 
-    saved_path = "/" + directory_name + "/" + final_name;
+    saved_path = "/" + directory_name + "/" + url_encode_path_segment(final_name);
     detail.clear();
     return true;
 }
@@ -2002,7 +2467,7 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
                                         "{\"ok\":false,\"message\":\"password must be at least 4 characters\"}");
     }
 
-    if (!verify_email_code(email, email_code, detail))
+    if (!verify_email_code(phone, email, email_code, detail))
     {
         AppLogger::info("register failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " reason=" + detail);
         return build_response_with_body(400,
@@ -2042,7 +2507,16 @@ HttpConn::Response WebServer::handle_register_api(const HttpConn::Request &reque
 HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request &request) const
 {
     const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
+    const std::string phone = form.count("phone") ? form.find("phone")->second : "";
     const std::string email = form.count("email") ? form.find("email")->second : "";
+
+    if (!is_valid_phone(phone))
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"phone number is invalid\"}");
+    }
 
     if (!is_valid_email(email))
     {
@@ -2052,8 +2526,19 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
                                         "{\"ok\":false,\"message\":\"email is invalid\"}");
     }
 
-    const std::string code = generate_email_verification_code();
+    cleanup_expired_email_state(time(nullptr));
+
     std::string detail;
+    if (!consume_email_code_rate_limit(phone, request.client_ip, detail))
+    {
+        AppLogger::info("verification code limited phone=" + phone + " ip=" + request.client_ip + " reason=" + detail);
+        return build_response_with_body(429,
+                                        "Too Many Requests",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") + json_escape(detail) + "\"}");
+    }
+
+    const std::string code = generate_email_verification_code();
     if (!SmtpClient::send_verification_code(email, code, detail))
     {
         AppLogger::error("SMTP send failed email=" + AppLogger::mask_email(email) + " detail=" + detail);
@@ -2063,8 +2548,8 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
                                         "{\"ok\":false,\"message\":\"verification code email failed\"}");
     }
 
-    save_email_verification_code(email, code);
-    AppLogger::info("verification code sent email=" + AppLogger::mask_email(email));
+    save_email_verification_code(phone, email, code);
+    AppLogger::info("verification code sent phone=" + phone + " email=" + AppLogger::mask_email(email) + " ip=" + request.client_ip);
 
     return build_response_with_body(200,
                                     "OK",
@@ -2135,7 +2620,7 @@ HttpConn::Response WebServer::handle_reset_api(const HttpConn::Request &request)
                                         "{\"ok\":false,\"message\":\"phone number was not registered\"}");
     }
 
-    if (!verify_email_code(email, email_code, detail))
+    if (!verify_email_code(phone, email, email_code, detail))
     {
         AppLogger::info("reset failed phone=" + phone + " email=" + AppLogger::mask_email(email) + " reason=" + detail);
         return build_response_with_body(400,
@@ -2239,8 +2724,7 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
         {
             return build_response_with_body(200, "OK", "text/html; charset=utf-8", read_file(index_path));
         }
-        return build_response_with_body(200, "OK", "text/html; charset=utf-8",
-                                        build_directory_listing(effective_path, full_path));
+        return build_error_response(403, "Forbidden", "<html><body><h1>403 Forbidden</h1></body></html>");
     }
 
     if (!file_exists(full_path))
@@ -2248,7 +2732,7 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
         return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
     }
 
-    return build_response_with_body(200, "OK", get_content_type(full_path), read_file(full_path));
+    return build_static_file_response(request, full_path);
 }
 
 bool WebServer::read_http_request(int sockfd, std::string &request_text)
@@ -2358,6 +2842,7 @@ void WebServer::process_request(int sockfd, const std::string &request_text)
         closefd(sockfd);
         return;
     }
+    request.client_ip = get_client_ip(sockfd);
 
     const HttpConn::Response response = handle_request(request);
     const std::string raw = response.to_http_string();
