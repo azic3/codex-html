@@ -37,3 +37,29 @@ Defaults:
 - Images: 20 MB
 - Videos: 1 GB
 
+## Redis
+
+Redis is used for email verification codes, verification-code rate limits, failed
+attempt counters, and short-lived image/video list caches.
+
+```bash
+export XIAOCHEN_REDIS_ENABLED="1"
+export XIAOCHEN_REDIS_HOST="127.0.0.1"
+export XIAOCHEN_REDIS_PORT="6379"
+export XIAOCHEN_REDIS_PASSWORD=""
+export XIAOCHEN_REDIS_DB="0"
+export XIAOCHEN_REDIS_TIMEOUT_MS="1000"
+```
+
+Defaults:
+
+- Redis enabled: yes
+- Host: `127.0.0.1`
+- Port: `6379`
+- DB: `0`
+- Timeout: 1000 ms
+
+When Redis is enabled but unavailable, `/api/send-email-code` fails explicitly
+instead of silently storing verification codes in process memory. Image and video
+list APIs fall back to scanning the filesystem if the Redis list cache is missed
+or unavailable.

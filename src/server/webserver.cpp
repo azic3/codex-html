@@ -33,10 +33,25 @@ const int kEmailCodeRequestInterval = 60;
 const int kEmailCodeDailyWindow = 24 * 60 * 60;
 const int kEmailCodeDailyLimit = 10;
 const int kEmailCodeMaxFailedAttempts = 5;
+const int kMediaListCacheTimeout = 60;
+const int kSessionDefaultTtl = 2 * 60 * 60;
+const int kSessionRememberTtl = 7 * 24 * 60 * 60;
+const std::size_t kDefaultImagePageSize = 12;
+const std::size_t kMaxImagePageSize = 100;
+const std::size_t kVideoChunkSize = 2 * 1024 * 1024;
+const std::size_t kMaxVideoChunkBodySize = 4 * 1024 * 1024;
 const std::size_t kDefaultMaxImageUploadSize = 20 * 1024 * 1024;
 const std::size_t kDefaultMaxVideoUploadSize = 1024ULL * 1024 * 1024;
 const unsigned long long kVideoRangeChunkSize = 1024ULL * 1024ULL;
 const char *kSessionCookieName = "XIAOCHEN_SESSION";
+const char *kRedisEmailCodePrefix = "xiaochen:email_code:";
+const char *kRedisEmailCodeFailedPrefix = "xiaochen:email_code_failed:";
+const char *kRedisEmailCodePhoneDailyPrefix = "xiaochen:email_code_daily:phone:";
+const char *kRedisEmailCodeIpDailyPrefix = "xiaochen:email_code_daily:ip:";
+const char *kRedisEmailCodePhoneMinutePrefix = "xiaochen:email_code_minute:phone:";
+const char *kRedisEmailCodeIpMinutePrefix = "xiaochen:email_code_minute:ip:";
+const char *kRedisImagesListKey = "xiaochen:cache:images:list:v2";
+const char *kRedisVideosListKey = "xiaochen:cache:videos:list:v2";
 int g_signal_pipefd[2] = {-1, -1};
 
 enum RangeParseStatus
@@ -90,6 +105,105 @@ bool parse_unsigned_number(const std::string &value, unsigned long long &number)
 
     number = parsed;
     return true;
+}
+
+bool has_query_param(const std::string &target, const std::string &name)
+{
+    const std::size_t query_pos = target.find('?');
+    if (query_pos == std::string::npos)
+    {
+        return false;
+    }
+
+    std::size_t start = query_pos + 1;
+    while (start <= target.size())
+    {
+        const std::size_t amp = target.find('&', start);
+        const std::string pair = target.substr(start, amp == std::string::npos ? std::string::npos : amp - start);
+        const std::size_t eq = pair.find('=');
+        if ((eq == std::string::npos ? pair : pair.substr(0, eq)) == name)
+        {
+            return true;
+        }
+
+        if (amp == std::string::npos)
+        {
+            break;
+        }
+        start = amp + 1;
+    }
+
+    return false;
+}
+
+std::size_t query_param_size(const std::string &target,
+                             const std::string &name,
+                             std::size_t fallback,
+                             std::size_t min_value,
+                             std::size_t max_value)
+{
+    const std::size_t query_pos = target.find('?');
+    if (query_pos == std::string::npos)
+    {
+        return fallback;
+    }
+
+    std::size_t start = query_pos + 1;
+    while (start <= target.size())
+    {
+        const std::size_t amp = target.find('&', start);
+        const std::string pair = target.substr(start, amp == std::string::npos ? std::string::npos : amp - start);
+        const std::size_t eq = pair.find('=');
+        const std::string key = eq == std::string::npos ? pair : pair.substr(0, eq);
+        if (key == name)
+        {
+            unsigned long long parsed = 0;
+            if (eq != std::string::npos && parse_unsigned_number(pair.substr(eq + 1), parsed))
+            {
+                const std::size_t value = static_cast<std::size_t>(parsed);
+                return std::max(min_value, std::min(max_value, value));
+            }
+            return fallback;
+        }
+
+        if (amp == std::string::npos)
+        {
+            break;
+        }
+        start = amp + 1;
+    }
+
+    return fallback;
+}
+
+std::string redis_email_code_key(const std::string &phone, const std::string &email)
+{
+    return std::string(kRedisEmailCodePrefix) + phone + ":" + email;
+}
+
+std::string redis_email_failed_key(const std::string &phone, const std::string &email)
+{
+    return std::string(kRedisEmailCodeFailedPrefix) + phone + ":" + email;
+}
+
+std::string redis_phone_rate_key(const std::string &phone)
+{
+    return std::string(kRedisEmailCodePhoneDailyPrefix) + phone;
+}
+
+std::string redis_ip_rate_key(const std::string &ip)
+{
+    return std::string(kRedisEmailCodeIpDailyPrefix) + (ip.empty() ? "unknown" : ip);
+}
+
+std::string redis_phone_minute_key(const std::string &phone)
+{
+    return std::string(kRedisEmailCodePhoneMinutePrefix) + phone;
+}
+
+std::string redis_ip_minute_key(const std::string &ip)
+{
+    return std::string(kRedisEmailCodeIpMinutePrefix) + (ip.empty() ? "unknown" : ip);
 }
 
 RangeParseStatus parse_range_header(const std::string &header,
@@ -402,6 +516,69 @@ std::string cookie_value(const std::string &cookie_header, const std::string &na
     return std::string();
 }
 
+bool is_auth_api(const HttpConn::Request &request)
+{
+    return (request.method == "POST" && request.path == "/api/login") ||
+           (request.method == "POST" && request.path == "/api/register") ||
+           (request.method == "POST" && request.path == "/api/send-email-code") ||
+           (request.method == "POST" && request.path == "/api/reset") ||
+           (request.method == "POST" && request.path == "/api/logout");
+}
+
+bool is_protected_api(const HttpConn::Request &request)
+{
+    return request.path.find("/api/") == 0 && !is_auth_api(request);
+}
+
+bool is_protected_page_path(const std::string &path)
+{
+    if (path == "/images/\xE5\x87\xA1\xE4\xBA\xBA\xE4\xBF\xAE\xE4\xBB\x99_001.png")
+    {
+        return false;
+    }
+
+    return path == "/app.html" ||
+           path == "/video.html" ||
+           path == "/profile.html" ||
+           path == "/index.html" ||
+           path == "/images" ||
+           path == "/images/" ||
+           path == "/videos" ||
+           path == "/videos/" ||
+           path.find("/media/images/") == 0 ||
+           path.find("/media/videos/") == 0 ||
+           path.find("/images/") == 0 ||
+           path.find("/videos/") == 0;
+}
+
+std::string session_cookie_header(const std::string &token, bool remember)
+{
+    const int ttl = remember ? kSessionRememberTtl : kSessionDefaultTtl;
+    return std::string(kSessionCookieName) + "=" + token +
+           "; HttpOnly; Path=/; SameSite=Lax; Max-Age=" + std::to_string(ttl);
+}
+
+HttpConn::Response build_login_redirect_response()
+{
+    HttpConn::Response response;
+    response.status_code = 302;
+    response.status_text = "Found";
+    response.content_type = "text/html; charset=utf-8";
+    response.body = "<html><body><a href=\"/login.html\">Login</a></body></html>";
+    response.headers["Location"] = "/login.html";
+    return response;
+}
+
+HttpConn::Response build_unauthorized_json_response()
+{
+    HttpConn::Response response;
+    response.status_code = 401;
+    response.status_text = "Unauthorized";
+    response.content_type = "application/json; charset=utf-8";
+    response.body = "{\"ok\":false,\"message\":\"not logged in\",\"redirect\":\"/login.html\"}";
+    return response;
+}
+
 bool request_is_complete(const std::string &request_text)
 {
     const std::size_t header_end = request_text.find("\r\n\r\n");
@@ -700,6 +877,8 @@ void WebServer::init(int port,
 
     trig_mode();
     m_db_pool.init(m_db_host, m_db_port, m_db_user, m_db_password, m_db_name, m_sql_num);
+    m_redis.init_from_env();
+    AppLogger::info(std::string("redis cache ") + (m_redis.enabled() ? "enabled" : "disabled"));
     m_thread_pool.reset(new ThreadPool(static_cast<std::size_t>(m_thread_num)));
 }
 
@@ -1571,12 +1750,13 @@ bool WebServer::reset_user_password_with_db(const std::string &username,
     return true;
 }
 
-std::string WebServer::create_session(const std::string &username, bool is_admin) const
+std::string WebServer::create_session(const std::string &username, bool is_admin, bool remember) const
 {
     UserSession session;
     session.username = username;
     session.is_admin = is_admin;
     session.created_at = time(nullptr);
+    session.expire_at = session.created_at + (remember ? kSessionRememberTtl : kSessionDefaultTtl);
 
     std::unique_lock<std::mutex> lock(m_session_mutex);
     std::string token;
@@ -1602,6 +1782,12 @@ bool WebServer::get_session(const HttpConn::Request &request, std::string &usern
     std::unordered_map<std::string, UserSession>::const_iterator it = m_sessions.find(token);
     if (it == m_sessions.end())
     {
+        return false;
+    }
+
+    if (it->second.expire_at <= time(nullptr))
+    {
+        m_sessions.erase(it);
         return false;
     }
 
@@ -1715,6 +1901,84 @@ void WebServer::cleanup_expired_email_state(time_t now) const
 bool WebServer::consume_email_code_rate_limit(const std::string &phone, const std::string &ip, std::string &detail) const
 {
     const time_t now = time(nullptr);
+
+    if (m_redis.enabled())
+    {
+        const std::string phone_key = redis_phone_rate_key(phone);
+        const std::string ip_key = redis_ip_rate_key(ip);
+        const std::string phone_minute_key = redis_phone_minute_key(phone);
+        const std::string ip_minute_key = redis_ip_minute_key(ip);
+        long long phone_count = 0;
+        long long ip_count = 0;
+        std::string minute_marker;
+
+        if (m_redis.get(phone_minute_key, minute_marker))
+        {
+            detail = "verification code can only be requested once per minute for this phone number";
+            return false;
+        }
+        if (!m_redis.last_error().empty())
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+
+        if (m_redis.get(ip_minute_key, minute_marker))
+        {
+            detail = "verification code can only be requested once per minute from this IP";
+            return false;
+        }
+        if (!m_redis.last_error().empty())
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+
+        if (!m_redis.incr(phone_key, phone_count) || !m_redis.incr(ip_key, ip_count))
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+
+        if (phone_count == 1 && !m_redis.expire(phone_key, kEmailCodeDailyWindow))
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+        if (ip_count == 1 && !m_redis.expire(ip_key, kEmailCodeDailyWindow))
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+
+        if (phone_count > kEmailCodeDailyLimit)
+        {
+            detail = "verification code daily request limit reached for this phone number";
+            return false;
+        }
+        if (ip_count > kEmailCodeDailyLimit)
+        {
+            detail = "verification code daily request limit reached for this IP";
+            return false;
+        }
+
+        if (!m_redis.setex(phone_minute_key, kEmailCodeRequestInterval, "1") ||
+            !m_redis.setex(ip_minute_key, kEmailCodeRequestInterval, "1"))
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+
+        detail.clear();
+        return true;
+    }
+
     std::unique_lock<std::mutex> lock(m_email_code_mutex);
 
     EmailCodeRateState &phone_state = m_email_code_phone_limits[phone];
@@ -1760,8 +2024,26 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
     return true;
 }
 
-void WebServer::save_email_verification_code(const std::string &phone, const std::string &email, const std::string &code) const
+bool WebServer::save_email_verification_code(const std::string &phone,
+                                             const std::string &email,
+                                             const std::string &code,
+                                             std::string &detail) const
 {
+    if (m_redis.enabled())
+    {
+        const std::string code_key = redis_email_code_key(phone, email);
+        const std::string failed_key = redis_email_failed_key(phone, email);
+        if (!m_redis.setex(code_key, kEmailCodeTimeout, code))
+        {
+            detail = "redis unavailable for verification code storage";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+        m_redis.del(failed_key);
+        detail.clear();
+        return true;
+    }
+
     EmailVerificationCode record;
     record.phone = phone;
     record.code = code;
@@ -1770,6 +2052,8 @@ void WebServer::save_email_verification_code(const std::string &phone, const std
 
     std::unique_lock<std::mutex> lock(m_email_code_mutex);
     m_email_codes[make_email_code_key(phone, email)] = record;
+    detail.clear();
+    return true;
 }
 
 bool WebServer::verify_email_code(const std::string &phone, const std::string &email, const std::string &code, std::string &detail) const
@@ -1784,6 +2068,52 @@ bool WebServer::verify_email_code(const std::string &phone, const std::string &e
     {
         detail = "email is invalid";
         return false;
+    }
+
+    if (m_redis.enabled())
+    {
+        const std::string code_key = redis_email_code_key(phone, email);
+        const std::string failed_key = redis_email_failed_key(phone, email);
+        std::string expected_code;
+        if (!m_redis.get(code_key, expected_code))
+        {
+            detail = m_redis.last_error().empty() ? "verification code was not sent"
+                                                  : "redis unavailable for verification code lookup";
+            if (!m_redis.last_error().empty())
+            {
+                AppLogger::error(detail + ": " + m_redis.last_error());
+            }
+            return false;
+        }
+
+        if (!is_six_digit_code(code) || expected_code != code)
+        {
+            long long failed_attempts = 0;
+            if (!m_redis.incr(failed_key, failed_attempts))
+            {
+                detail = "redis unavailable for verification code attempts";
+                AppLogger::error(detail + ": " + m_redis.last_error());
+                return false;
+            }
+            if (failed_attempts == 1)
+            {
+                m_redis.expire(failed_key, kEmailCodeTimeout);
+            }
+            if (failed_attempts >= kEmailCodeMaxFailedAttempts)
+            {
+                m_redis.del(code_key);
+                m_redis.del(failed_key);
+                detail = "verification code failed too many times";
+                return false;
+            }
+            detail = is_six_digit_code(code) ? "verification code mismatch" : "verification code is invalid";
+            return false;
+        }
+
+        m_redis.del(code_key);
+        m_redis.del(failed_key);
+        detail.clear();
+        return true;
     }
 
     std::unique_lock<std::mutex> lock(m_email_code_mutex);
@@ -2010,7 +2340,7 @@ std::string WebServer::build_images_json() const
     body << "[";
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
-        const std::string url = "/images/" + url_encode_path_segment(entries[i].name);
+        const std::string url = "/media/images/" + url_encode_path_segment(entries[i].name);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
@@ -2025,12 +2355,97 @@ std::string WebServer::build_images_json() const
     return body.str();
 }
 
+std::string WebServer::build_images_page_json(std::size_t page, std::size_t limit) const
+{
+    struct ImageEntry
+    {
+        std::string name;
+        time_t modified_at;
+        unsigned long long size;
+    };
+
+    const std::string directory_path = join_path(m_root, "images");
+    DIR *dir = opendir(directory_path.c_str());
+    if (dir == nullptr)
+    {
+        return "{\"ok\":true,\"page\":1,\"limit\":0,\"total\":0,\"has_more\":false,\"items\":[]}";
+    }
+
+    std::vector<ImageEntry> entries;
+    dirent *entry = nullptr;
+    while ((entry = readdir(dir)) != nullptr)
+    {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..")
+        {
+            continue;
+        }
+
+        const std::string full_path = join_path(directory_path, name);
+        if (!file_exists(full_path) || !is_image_extension(name))
+        {
+            continue;
+        }
+
+        struct stat st;
+        std::memset(&st, 0, sizeof(st));
+        if (stat(full_path.c_str(), &st) != 0)
+        {
+            continue;
+        }
+
+        ImageEntry image_entry;
+        image_entry.name = name;
+        image_entry.modified_at = st.st_mtime;
+        image_entry.size = static_cast<unsigned long long>(st.st_size);
+        entries.push_back(image_entry);
+    }
+
+    closedir(dir);
+    std::sort(entries.begin(), entries.end(), [](const ImageEntry &left, const ImageEntry &right) {
+        if (left.modified_at != right.modified_at)
+        {
+            return left.modified_at > right.modified_at;
+        }
+        return left.name < right.name;
+    });
+
+    const std::size_t total = entries.size();
+    const std::size_t offset = page > 0 ? (page - 1) * limit : 0;
+    const std::size_t end = offset < total ? std::min(total, offset + limit) : offset;
+
+    std::ostringstream body;
+    body << "{\"ok\":true,"
+         << "\"page\":" << page << ","
+         << "\"limit\":" << limit << ","
+         << "\"total\":" << total << ","
+         << "\"has_more\":" << (end < total ? "true" : "false") << ","
+         << "\"items\":[";
+    for (std::size_t i = offset; i < end; ++i)
+    {
+        const std::string url = "/media/images/" + url_encode_path_segment(entries[i].name);
+        body << "{"
+             << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
+             << "\"url\":\"" << json_escape_string(url) << "\","
+             << "\"path\":\"" << json_escape_string(url) << "\","
+             << "\"size\":" << entries[i].size
+             << "}";
+        if (i + 1 < end)
+        {
+            body << ",";
+        }
+    }
+    body << "]}";
+    return body.str();
+}
+
 std::string WebServer::build_videos_json() const
 {
     struct VideoEntry
     {
         std::string name;
         time_t modified_at;
+        unsigned long long size;
     };
 
     const std::string directory_path = join_path(m_root, "videos");
@@ -2066,6 +2481,7 @@ std::string WebServer::build_videos_json() const
         VideoEntry video_entry;
         video_entry.name = name;
         video_entry.modified_at = st.st_mtime;
+        video_entry.size = static_cast<unsigned long long>(st.st_size);
         entries.push_back(video_entry);
     }
 
@@ -2082,11 +2498,12 @@ std::string WebServer::build_videos_json() const
     body << "[";
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
-        const std::string url = "/videos/" + url_encode_path_segment(entries[i].name);
+        const std::string url = "/media/videos/" + url_encode_path_segment(entries[i].name);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
-             << "\"path\":\"" << json_escape_string(url) << "\""
+             << "\"path\":\"" << json_escape_string(url) << "\","
+             << "\"size\":" << entries[i].size
              << "}";
         if (i + 1 < entries.size())
         {
@@ -2095,6 +2512,52 @@ std::string WebServer::build_videos_json() const
     }
     body << "]";
     return body.str();
+}
+
+std::string WebServer::build_cached_images_json() const
+{
+    std::string cached;
+    if (m_redis.enabled() && m_redis.get(kRedisImagesListKey, cached))
+    {
+        return cached;
+    }
+
+    const std::string body = build_images_json();
+    if (m_redis.enabled() && !m_redis.setex(kRedisImagesListKey, kMediaListCacheTimeout, body))
+    {
+        AppLogger::error("image list cache write failed: " + m_redis.last_error());
+    }
+    return body;
+}
+
+std::string WebServer::build_cached_videos_json() const
+{
+    std::string cached;
+    if (m_redis.enabled() && m_redis.get(kRedisVideosListKey, cached))
+    {
+        return cached;
+    }
+
+    const std::string body = build_videos_json();
+    if (m_redis.enabled() && !m_redis.setex(kRedisVideosListKey, kMediaListCacheTimeout, body))
+    {
+        AppLogger::error("video list cache write failed: " + m_redis.last_error());
+    }
+    return body;
+}
+
+void WebServer::invalidate_media_list_cache(const std::string &directory_name) const
+{
+    if (!m_redis.enabled())
+    {
+        return;
+    }
+
+    const char *key = directory_name == "videos" ? kRedisVideosListKey : kRedisImagesListKey;
+    if (!m_redis.del(key))
+    {
+        AppLogger::error("media list cache invalidation failed: " + m_redis.last_error());
+    }
 }
 
 bool WebServer::save_uploaded_image(const HttpConn::Request &request,
@@ -2257,7 +2720,133 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
         return false;
     }
 
-    saved_path = "/" + directory_name + "/" + url_encode_path_segment(final_name);
+    saved_path = "/media/" + directory_name + "/" + url_encode_path_segment(final_name);
+    invalidate_media_list_cache(directory_name);
+    detail.clear();
+    return true;
+}
+
+bool WebServer::save_uploaded_video_chunk(const HttpConn::Request &request, std::string &saved_path, std::string &detail) const
+{
+    const std::string upload_id = sanitize_upload_filename(get_header_value(request, "X-Upload-Id"));
+    const std::string filename = sanitize_upload_filename(m_http_conn.url_decode(get_header_value(request, "X-File-Name")));
+    const std::string chunk_index_text = get_header_value(request, "X-Chunk-Index");
+    const std::string total_chunks_text = get_header_value(request, "X-Total-Chunks");
+    const std::string file_size_text = get_header_value(request, "X-File-Size");
+
+    unsigned long long chunk_index = 0;
+    unsigned long long total_chunks = 0;
+    unsigned long long file_size = 0;
+
+    if (upload_id.empty() || filename.empty() ||
+        !parse_unsigned_number(chunk_index_text, chunk_index) ||
+        !parse_unsigned_number(total_chunks_text, total_chunks) ||
+        !parse_unsigned_number(file_size_text, file_size))
+    {
+        detail = "missing chunk upload metadata";
+        return false;
+    }
+
+    if (!is_safe_video_upload_extension(filename))
+    {
+        detail = "only mp4, webm, ogg, mov, avi, mkv, m4v are supported";
+        return false;
+    }
+
+    if (total_chunks == 0 || chunk_index >= total_chunks)
+    {
+        detail = "invalid chunk index";
+        return false;
+    }
+
+    if (file_size == 0 || file_size > m_max_video_upload_size)
+    {
+        detail = "video is too large, max size is " + format_byte_limit(m_max_video_upload_size);
+        return false;
+    }
+
+    if (request.body.empty() || request.body.size() > kMaxVideoChunkBodySize)
+    {
+        detail = "invalid video chunk size";
+        return false;
+    }
+
+    if (chunk_index + 1 < total_chunks && request.body.size() != kVideoChunkSize)
+    {
+        detail = "non-final video chunk size must be 2MB";
+        return false;
+    }
+
+    const std::string directory_path = join_path(m_root, "videos");
+    if (!ensure_directory_exists(directory_path))
+    {
+        detail = "failed to create videos directory";
+        return false;
+    }
+
+    const std::string temp_name = upload_id + ".part";
+    const std::string temp_path = join_path(directory_path, temp_name);
+
+    if (chunk_index == 0)
+    {
+        std::ofstream reset(temp_path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!reset.is_open())
+        {
+            detail = "failed to create temporary video upload file";
+            return false;
+        }
+    }
+
+    struct stat st;
+    std::memset(&st, 0, sizeof(st));
+    const unsigned long long expected_offset = chunk_index * static_cast<unsigned long long>(kVideoChunkSize);
+    const bool temp_exists = stat(temp_path.c_str(), &st) == 0;
+    const unsigned long long current_size = temp_exists ? static_cast<unsigned long long>(st.st_size) : 0;
+    if (current_size != expected_offset)
+    {
+        detail = "video chunks must be uploaded in order";
+        return false;
+    }
+
+    errno = 0;
+    std::ofstream output(temp_path.c_str(), std::ios::out | std::ios::binary | std::ios::app);
+    if (!output.is_open())
+    {
+        detail = "failed to open temporary video upload file errno=" + std::to_string(errno);
+        return false;
+    }
+    output.write(request.body.data(), static_cast<std::streamsize>(request.body.size()));
+    output.close();
+    if (!output)
+    {
+        detail = "failed to write video chunk";
+        return false;
+    }
+
+    if (chunk_index + 1 < total_chunks)
+    {
+        saved_path.clear();
+        detail.clear();
+        return true;
+    }
+
+    std::memset(&st, 0, sizeof(st));
+    if (stat(temp_path.c_str(), &st) != 0 || static_cast<unsigned long long>(st.st_size) != file_size)
+    {
+        detail = "merged video size does not match upload metadata";
+        return false;
+    }
+
+    const std::string final_name = unique_upload_filename("videos", filename);
+    const std::string final_path = join_path(directory_path, final_name);
+    if (std::rename(temp_path.c_str(), final_path.c_str()) != 0)
+    {
+        detail = "failed to finalize uploaded video";
+        return false;
+    }
+
+    saved_path = "/media/videos/" + url_encode_path_segment(final_name);
+    invalidate_media_list_cache("videos");
     detail.clear();
     return true;
 }
@@ -2322,12 +2911,64 @@ HttpConn::Response WebServer::handle_upload_video_api(const HttpConn::Request &r
                                         json_escape_string(saved_path) + "\"}");
 }
 
-HttpConn::Response WebServer::handle_list_images_api() const
+HttpConn::Response WebServer::handle_upload_video_chunk_api(const HttpConn::Request &request) const
 {
+    if (!current_user_is_admin(request))
+    {
+        return build_response_with_body(403,
+                                        "Forbidden",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"only admin can upload videos\"}");
+    }
+
+    std::string saved_path;
+    std::string detail;
+    if (!save_uploaded_video_chunk(request, saved_path, detail))
+    {
+        AppLogger::error("video chunk upload failed: " + detail);
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(detail) + "\"}");
+    }
+
+    if (saved_path.empty())
+    {
+        return build_response_with_body(200,
+                                        "OK",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":true,\"complete\":false}");
+    }
+
+    AppLogger::info("video chunk upload complete path=" + saved_path);
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    build_images_json());
+                                    std::string("{\"ok\":true,\"complete\":true,\"path\":\"") +
+                                        json_escape_string(saved_path) + "\"}");
+}
+
+HttpConn::Response WebServer::handle_list_images_api(const HttpConn::Request &request) const
+{
+    if (has_query_param(request.raw_target, "page") || has_query_param(request.raw_target, "limit"))
+    {
+        const std::size_t page = query_param_size(request.raw_target, "page", 1, 1, 1000000);
+        const std::size_t limit = query_param_size(request.raw_target,
+                                                  "limit",
+                                                  kDefaultImagePageSize,
+                                                  1,
+                                                  kMaxImagePageSize);
+        return build_response_with_body(200,
+                                        "OK",
+                                        "application/json; charset=utf-8",
+                                        build_images_page_json(page, limit));
+    }
+
+    return build_response_with_body(200,
+                                    "OK",
+                                    "application/json; charset=utf-8",
+                                    build_cached_images_json());
 }
 
 HttpConn::Response WebServer::handle_list_videos_api() const
@@ -2335,7 +2976,59 @@ HttpConn::Response WebServer::handle_list_videos_api() const
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    build_videos_json());
+                                    build_cached_videos_json());
+}
+
+HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request) const
+{
+    const std::string image_prefix = "/media/images/";
+    const std::string video_prefix = "/media/videos/";
+    std::string directory_name;
+    std::string accel_prefix;
+    std::string filename;
+
+    if (request.path.find(image_prefix) == 0)
+    {
+        directory_name = "images";
+        accel_prefix = "/_protected_images/";
+        filename = request.path.substr(image_prefix.size());
+    }
+    else if (request.path.find(video_prefix) == 0)
+    {
+        directory_name = "videos";
+        accel_prefix = "/_protected_videos/";
+        filename = request.path.substr(video_prefix.size());
+    }
+    else
+    {
+        return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
+    }
+
+    if (filename.empty() ||
+        filename.find('/') != std::string::npos ||
+        filename.find('\\') != std::string::npos ||
+        filename.find("..") != std::string::npos)
+    {
+        return build_error_response(403, "Forbidden", "<html><body><h1>403 Forbidden</h1></body></html>");
+    }
+
+    const bool ext_ok = directory_name == "images" ? is_image_extension(filename)
+                                                   : is_video_extension(filename);
+    const std::string full_path = join_path(join_path(m_root, directory_name), filename);
+    if (!ext_ok || !file_exists(full_path))
+    {
+        return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
+    }
+
+    if (get_header_value(request, "X-Accel-Enabled") != "1")
+    {
+        return build_static_file_response(request, full_path);
+    }
+
+    HttpConn::Response response = build_response_with_body(200, "OK", get_content_type(filename), "");
+    response.headers["X-Accel-Redirect"] = accel_prefix + url_encode_path_segment(filename);
+    response.headers["Cache-Control"] = "private";
+    return response;
 }
 
 HttpConn::Response WebServer::handle_current_user_api(const HttpConn::Request &request) const
@@ -2380,7 +3073,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
 
     if (username == "admin" && password == "12345")
     {
-        const std::string token = create_session(username, true);
+        const std::string token = create_session(username, true, remember);
         AppLogger::info("login success username=admin role=admin source=fallback");
         std::ostringstream body;
         body << "{"
@@ -2393,14 +3086,14 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
              << "\"source\":\"fallback\""
              << "}";
         HttpConn::Response response = build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
-        response.headers["Set-Cookie"] = std::string(kSessionCookieName) + "=" + token + "; HttpOnly; Path=/; SameSite=Lax";
+        response.headers["Set-Cookie"] = session_cookie_header(token, remember);
         return response;
     }
 
     std::string db_detail;
     if (validate_user_with_db(username, password, db_detail))
     {
-        const std::string token = create_session(username, false);
+        const std::string token = create_session(username, false, remember);
         AppLogger::info("login success username=" + username + " role=user source=mysql");
         std::ostringstream body;
         body << "{"
@@ -2413,7 +3106,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
              << "\"source\":\"mysql\""
              << "}";
         HttpConn::Response response = build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
-        response.headers["Set-Cookie"] = std::string(kSessionCookieName) + "=" + token + "; HttpOnly; Path=/; SameSite=Lax";
+        response.headers["Set-Cookie"] = session_cookie_header(token, remember);
         return response;
     }
 
@@ -2548,7 +3241,14 @@ HttpConn::Response WebServer::handle_send_email_code_api(const HttpConn::Request
                                         "{\"ok\":false,\"message\":\"verification code email failed\"}");
     }
 
-    save_email_verification_code(phone, email, code);
+    if (!save_email_verification_code(phone, email, code, detail))
+    {
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"verification code storage failed\"}");
+    }
+
     AppLogger::info("verification code sent phone=" + phone + " email=" + AppLogger::mask_email(email) + " ip=" + request.client_ip);
 
     return build_response_with_body(200,
@@ -2655,6 +3355,17 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
         return build_error_response(403, "Forbidden", "<html><body><h1>403 Forbidden</h1></body></html>");
     }
 
+    if (is_protected_api(request) || is_protected_page_path(request.path))
+    {
+        std::string username;
+        bool is_admin = false;
+        if (!get_session(request, username, is_admin))
+        {
+            return is_protected_api(request) ? build_unauthorized_json_response()
+                                             : build_login_redirect_response();
+        }
+    }
+
     if (request.method == "POST" && request.path == "/api/login")
     {
         return handle_login_api(request);
@@ -2687,13 +3398,22 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     {
         return handle_upload_video_api(request);
     }
+    if (request.method == "POST" && request.path == "/api/upload-video-chunk")
+    {
+        return handle_upload_video_chunk_api(request);
+    }
     if (request.method == "GET" && request.path == "/api/images")
     {
-        return handle_list_images_api();
+        return handle_list_images_api(request);
     }
     if (request.method == "GET" && request.path == "/api/videos")
     {
         return handle_list_videos_api();
+    }
+    if (request.method == "GET" &&
+        (request.path.find("/media/images/") == 0 || request.path.find("/media/videos/") == 0))
+    {
+        return handle_media_api(request);
     }
 
     if (request.method != "GET")

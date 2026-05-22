@@ -1,5 +1,66 @@
 # XIAOCHEN WebServer
 
+## 当前项目架构更新
+
+当前部署推荐采用 **Nginx + C++ WebServer** 的前后分层架构：
+
+```text
+浏览器
+  |
+  v
+Nginx :80
+  |
+  |-- /css/、/js/ 等公开静态资源由 Nginx 直接返回
+  |-- /api/ 反向代理到 C++ WebServer :9006
+  |-- /media/images/、/media/videos/ 先交给 C++ 校验登录态
+      |
+      v
+    C++ 校验 Cookie Session
+      |
+      |-- 未登录：302 /login.html 或 401 JSON
+      |-- 已登录：返回 X-Accel-Redirect
+              |
+              v
+            Nginx internal alias 发送 public/images 或 public/videos 下的真实文件
+```
+
+核心分工：
+
+- Nginx 负责入口流量、反向代理、静态资源发送、大图片和视频文件传输。
+- C++ WebServer 负责登录注册、Session 鉴权、上传、图片/视频列表、媒体访问授权、MySQL 和 Redis 相关业务逻辑。
+- 浏览器不再直接使用 `/images/...` 和 `/videos/...` 访问媒体文件，而是使用 `/media/images/...` 和 `/media/videos/...`。
+- 真实文件仍保存在 `public/images/` 和 `public/videos/`。
+- Nginx 通过 `/_protected_images/` 和 `/_protected_videos/` 的 `internal alias` 发送真实文件，外部用户不能直接访问这两个 internal 路径。
+
+当前服务器参考路径：
+
+```text
+/root/codexhtml
+```
+
+Nginx 示例配置见：
+
+```text
+docs/nginx-x-accel-example.conf
+```
+
+重要提醒：
+
+- 正式部署时应通过 `http://116.62.240.214/app.html` 访问，不要直接暴露或访问 `:9006`。
+- C++ 服务建议只监听或仅允许本机 Nginx 访问 `127.0.0.1:9006`。
+- 修改后端代码后，需要在 Linux 服务器上重新执行 `make` 并重启 `./build/server`。
+- 修改 Nginx 配置后，需要执行 `sudo nginx -t` 和 `sudo systemctl reload nginx`。
+
+## 已实现的关键能力
+
+- 登录成功后由后端生成随机 Session Token，通过 `HttpOnly` Cookie 下发。
+- Session 带过期时间，默认 2 小时，勾选记住登录后延长到 7 天。
+- `/app.html`、`/video.html`、`/profile.html` 和受保护 `/api/*` 会统一校验登录态。
+- `/api/images` 支持分页返回，前端滚动到底部继续加载。
+- 图片库使用瀑布流布局和懒加载，减少首屏压力。
+- 视频上传优先使用 2MB 分片上传，上传完成后后端合并为正式文件。
+- 图片和视频访问走 `/media/...` 鉴权路径，通过后由 Nginx `X-Accel-Redirect` 发送文件。
+
 XIAOCHEN WebServer 是一个基于 C++ 的轻量级 WebServer 示例项目，使用 Linux 网络编程模型实现静态资源访问、用户登录注册、邮箱验证码、图片上传和视频上传等功能。
 
 ## 功能特性

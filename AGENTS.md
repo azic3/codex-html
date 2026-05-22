@@ -285,3 +285,74 @@ http://localhost:9006/video.html
 - 增加 CI 构建检查、格式化检查和基础接口回归测试，减少改动后才发现 Linux 编译或运行问题。
 - 增加 HTTPS/反向代理部署示例，例如 Nginx + systemd 服务配置，并补充 WSL/Linux 容器本地运行说明。
 - 为前端补充上传进度、加载状态、空列表状态、可重试错误提示和基础无障碍属性。
+
+# XIAOCHEN WebServer 当前协作架构补充
+
+## 最新协作上下文：当前项目架构
+
+当前项目已从“C++ WebServer 直接发送全部页面和媒体文件”升级为 **Nginx + C++ WebServer** 的分层架构。
+
+### 部署入口
+
+- 公网入口：`http://116.62.240.214`
+- C++ 服务端口：`9006`
+- 服务器项目路径：`/root/codexhtml`
+- Nginx 示例配置：`docs/nginx-x-accel-example.conf`
+
+### 分层职责
+
+```text
+浏览器
+  |
+  v
+Nginx :80
+  |
+  |-- /css/、/js/：Nginx 直接发送
+  |-- /api/：反向代理到 127.0.0.1:9006
+  |-- /media/images/、/media/videos/：反向代理到 C++ 做登录态鉴权
+      |
+      v
+    C++ WebServer
+      |
+      |-- 未登录：302 /login.html 或 401 JSON
+      |-- 已登录：返回 X-Accel-Redirect
+              |
+              v
+            Nginx internal alias 发送 public/images 或 public/videos 中的真实文件
+```
+
+### 媒体访问规则
+
+- 浏览器可见媒体路径使用 `/media/images/文件名` 和 `/media/videos/文件名`。
+- 真实文件存储路径仍是 `public/images/` 和 `public/videos/`。
+- Nginx internal 路径为 `/_protected_images/` 和 `/_protected_videos/`。
+- `/_protected_images/` 和 `/_protected_videos/` 必须配置 `internal`，不能允许公网直接访问。
+- `/media/` 位置需要代理到 C++ 服务，并在 X-Accel 正式启用时设置 `proxy_set_header X-Accel-Enabled 1;`。
+
+### 登录态和鉴权
+
+- 登录成功后，后端生成随机 Session Token。
+- Cookie 名称：`XIAOCHEN_SESSION`。
+- Cookie 属性：`HttpOnly; Path=/; SameSite=Lax; Max-Age=...`。
+- 默认 Session 有效期：2 小时。
+- 勾选记住登录后有效期：7 天。
+- `/app.html`、`/video.html`、`/profile.html` 和除登录/注册/验证码/找回密码外的 `/api/*` 都需要登录态。
+- 未登录访问受保护页面会跳转 `/login.html`；未登录访问受保护 API 返回 `401 JSON`。
+
+### 图片和视频能力
+
+- `/api/images?page=1&limit=12` 支持分页。
+- 图片库前端使用瀑布流布局和懒加载。
+- 视频上传优先走 2MB 分片接口：`POST /api/upload-video-chunk`。
+- 普通图片上传仍走：`POST /api/upload`。
+- 上传后的浏览器可见路径统一返回 `/media/images/...` 或 `/media/videos/...`。
+
+### 协作注意事项
+
+- 本地 Windows 工作区只用于编辑代码，不作为真实运行环境。
+- 需要编译、运行、重启服务、验证接口时，应让用户在远程 Linux 服务器 `/root/codexhtml` 执行。
+- 修改 C++ 后端后，需要在服务器执行 `cd /root/codexhtml && make`。
+- 修改 Nginx 配置后，需要执行 `sudo nginx -t` 和 `sudo systemctl reload nginx`。
+- 不要把本地 Windows 路径写入 Nginx；Nginx 使用服务器 Linux 路径 `/root/codexhtml/...`。
+
+---

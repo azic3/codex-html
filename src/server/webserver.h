@@ -13,6 +13,7 @@
 #include "app_logger.h"
 #include "http_conn.h"
 #include "password_hasher.h"
+#include "redis_client.h"
 #include "smtp_client.h"
 #include "threadpool.h"
 
@@ -96,8 +97,10 @@ private:
     HttpConn::Response handle_reset_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_upload_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_upload_video_api(const HttpConn::Request &request) const;
-    HttpConn::Response handle_list_images_api() const;
+    HttpConn::Response handle_upload_video_chunk_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_list_images_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_list_videos_api() const;
+    HttpConn::Response handle_media_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_current_user_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_logout_api(const HttpConn::Request &request) const;
     HttpConn::Response build_error_response(int status_code, const std::string &status_text, const std::string &body) const;
@@ -124,7 +127,11 @@ private:
     std::string unique_upload_filename(const std::string &directory_name, const std::string &filename) const;
     bool ensure_directory_exists(const std::string &path) const;
     std::string build_images_json() const;
+    std::string build_images_page_json(std::size_t page, std::size_t limit) const;
     std::string build_videos_json() const;
+    std::string build_cached_images_json() const;
+    std::string build_cached_videos_json() const;
+    void invalidate_media_list_cache(const std::string &directory_name) const;
     bool save_uploaded_image(const HttpConn::Request &request, std::string &saved_path, std::string &detail) const;
     bool save_uploaded_media(const HttpConn::Request &request,
                              const std::string &directory_name,
@@ -132,10 +139,11 @@ private:
                              bool expect_image,
                              std::string &saved_path,
                              std::string &detail) const;
+    bool save_uploaded_video_chunk(const HttpConn::Request &request, std::string &saved_path, std::string &detail) const;
     bool validate_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
     bool register_user_with_db(const std::string &username, const std::string &password, std::string &detail) const;
     bool reset_user_password_with_db(const std::string &username, const std::string &password, std::string &detail) const;
-    std::string create_session(const std::string &username, bool is_admin) const;
+    std::string create_session(const std::string &username, bool is_admin, bool remember) const;
     bool get_session(const HttpConn::Request &request, std::string &username, bool &is_admin) const;
     void destroy_session(const HttpConn::Request &request) const;
     bool current_user_is_admin(const HttpConn::Request &request) const;
@@ -144,7 +152,7 @@ private:
     std::string make_email_code_key(const std::string &phone, const std::string &email) const;
     void cleanup_expired_email_state(time_t now) const;
     bool consume_email_code_rate_limit(const std::string &phone, const std::string &ip, std::string &detail) const;
-    void save_email_verification_code(const std::string &phone, const std::string &email, const std::string &code) const;
+    bool save_email_verification_code(const std::string &phone, const std::string &email, const std::string &code, std::string &detail) const;
     bool verify_email_code(const std::string &phone, const std::string &email, const std::string &code, std::string &detail) const;
 
 private:
@@ -168,6 +176,7 @@ private:
         std::string username;
         bool is_admin;
         time_t created_at;
+        time_t expire_at;
     };
 
     int m_port;
@@ -192,6 +201,7 @@ private:
     std::size_t m_max_video_upload_size;
     HttpConn m_http_conn;
     mutable CGMysqlPool m_db_pool;
+    mutable RedisClient m_redis;
     std::unique_ptr<ThreadPool> m_thread_pool;
     std::unordered_map<int, std::string> m_pending_requests;
     std::unordered_map<int, UtilTimer *> m_conn_timers;

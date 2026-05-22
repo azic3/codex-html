@@ -11,6 +11,7 @@ SOURCES := \
 	src/http/http_conn.cpp \
 	src/threadpool/threadpool.cpp \
 	src/db/CGmysql.cpp \
+	src/cache/redis_client.cpp \
 	src/mail/smtp_client.cpp \
 	src/logging/app_logger.cpp \
 	src/security/password_hasher.cpp
@@ -21,6 +22,7 @@ INCLUDES := \
 	-Isrc/http \
 	-Isrc/threadpool \
 	-Isrc/db \
+	-Isrc/cache \
 	-Isrc/mail \
 	-Isrc/logging \
 	-Isrc/security

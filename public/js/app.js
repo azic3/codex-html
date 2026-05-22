@@ -34,10 +34,28 @@
   var averageWidthNode = document.getElementById("image-average-width");
 
   var galleryItems = [];
+  var imagePage = 1;
+  var imagePageSize = 12;
+  var imageHasMore = true;
+  var imageLoading = false;
   var lastUploadFile = null;
   var canUpload = false;
   var activeFilter = "all";
   var imageMetaByUrl = {};
+  var imageLazyObserver = null;
+
+  if ("IntersectionObserver" in window) {
+    imageLazyObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) {
+          return;
+        }
+        var image = entry.target;
+        image.src = image.dataset.src;
+        imageLazyObserver.unobserve(image);
+      });
+    }, { rootMargin: "260px 0px" });
+  }
 
   function openPreview(src, title) {
     lightboxImage.src = src;
@@ -193,7 +211,7 @@
       });
       lastUploadFile = null;
       uploadForm.reset();
-      loadImages();
+      resetImages();
     });
 
     xhr.addEventListener("error", function () {
@@ -288,8 +306,15 @@
       var downloadButtons = fragment.querySelectorAll(".download-action, .image-mini-action");
       var ext = fileExt(item.title || item.url).toUpperCase();
 
-      image.src = item.url;
       image.alt = item.title || "";
+      image.loading = "lazy";
+      image.decoding = "async";
+      if (imageLazyObserver) {
+        image.dataset.src = item.url;
+        imageLazyObserver.observe(image);
+      } else {
+        image.src = item.url;
+      }
       title.textContent = item.title || item.url;
       path.textContent = displayFileName(item);
       size.textContent = formatFileSize(item.size);
@@ -332,22 +357,41 @@
     });
   }
 
-  function loadImages() {
-    return fetch("/api/images")
+  function loadImages(reset) {
+    if (imageLoading || (!reset && !imageHasMore)) {
+      return Promise.resolve();
+    }
+
+    imageLoading = true;
+    return fetch("/api/images?page=" + imagePage + "&limit=" + imagePageSize)
       .then(function (response) {
         if (!response.ok) {
           throw new Error("图片列表加载失败");
         }
         return response.json();
       })
-      .then(function (items) {
-        galleryItems = Array.isArray(items) ? items : [];
+      .then(function (data) {
+        var items = Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
+        galleryItems = reset ? items : galleryItems.concat(items);
+        imageHasMore = Array.isArray(data) ? false : !!data.has_more;
+        imagePage += 1;
         renderGallery();
       })
       .catch(function () {
         galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败，请刷新页面或确认服务正在运行。</div>';
         updateStats([]);
+      })
+      .then(function () {
+        imageLoading = false;
       });
+  }
+
+  function resetImages() {
+    imagePage = 1;
+    imageHasMore = true;
+    galleryItems = [];
+    galleryGrid.innerHTML = "";
+    return loadImages(true);
   }
 
   function chooseFile(file) {
@@ -471,5 +515,12 @@
 
   searchInput.addEventListener("input", renderGallery);
 
-  loadCurrentUser().then(loadImages);
+  window.addEventListener("scroll", function () {
+    var nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 420;
+    if (nearBottom) {
+      loadImages(false);
+    }
+  }, { passive: true });
+
+  loadCurrentUser().then(resetImages);
 })();

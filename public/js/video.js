@@ -26,6 +26,7 @@
   var allVideos = [];
   var activeFilter = "all";
   var durationByUrl = {};
+  var videoChunkSize = 2 * 1024 * 1024;
 
   function formatFileSize(bytes) {
     if (!bytes && bytes !== 0) {
@@ -95,6 +96,111 @@
     } catch (error) {
       return {};
     }
+  }
+
+  function createUploadId(file) {
+    return [
+      "video",
+      Date.now(),
+      Math.random().toString(36).slice(2),
+      String(file.name || "upload").replace(/[^a-zA-Z0-9_.-]/g, "_")
+    ].join("-");
+  }
+
+  function sendVideoChunk(file, uploadId, chunkIndex, totalChunks) {
+    return new Promise(function (resolve, reject) {
+      var start = chunkIndex * videoChunkSize;
+      var end = Math.min(file.size, start + videoChunkSize);
+      var xhr = new XMLHttpRequest();
+
+      xhr.addEventListener("load", function () {
+        var data = parseUploadResponse(xhr);
+        if (xhr.status < 200 || xhr.status >= 300 || !data.ok) {
+          reject(new Error(data.message || "video chunk upload failed"));
+          return;
+        }
+        resolve(data);
+      });
+
+      xhr.addEventListener("error", function () {
+        reject(new Error("network interrupted"));
+      });
+
+      xhr.addEventListener("timeout", function () {
+        reject(new Error("chunk upload timeout"));
+      });
+
+      xhr.open("POST", "/api/upload-video-chunk");
+      xhr.timeout = 2 * 60 * 1000;
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.setRequestHeader("X-Upload-Id", uploadId);
+      xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name || "video"));
+      xhr.setRequestHeader("X-Chunk-Index", String(chunkIndex));
+      xhr.setRequestHeader("X-Total-Chunks", String(totalChunks));
+      xhr.setRequestHeader("X-File-Size", String(file.size));
+      xhr.send(file.slice(start, end));
+    });
+  }
+
+  function uploadChunkedFile(file) {
+    if (!canUpload) {
+      setUploadStatus("only admin can upload videos", "err");
+      return;
+    }
+
+    var uploadId = createUploadId(file);
+    var totalChunks = Math.ceil(file.size / videoChunkSize);
+    var uploadedBytes = 0;
+    var finalPath = "";
+    var chain = Promise.resolve();
+
+    uploadSubmit.disabled = true;
+    uploadSubmit.textContent = "上传中";
+    setUploadStatus("正在分片上传视频...", "", {
+      progress: 0,
+      meta: file.name + " - 0 / " + totalChunks + " chunks"
+    });
+
+    for (var i = 0; i < totalChunks; i += 1) {
+      (function (chunkIndex) {
+        chain = chain.then(function () {
+          return sendVideoChunk(file, uploadId, chunkIndex, totalChunks).then(function (data) {
+            uploadedBytes = Math.min(file.size, (chunkIndex + 1) * videoChunkSize);
+            if (data.complete && data.path) {
+              finalPath = data.path;
+            }
+            var percent = Math.round((uploadedBytes / file.size) * 100);
+            setUploadStatus("正在分片上传视频...", "", {
+              progress: percent,
+              meta: (chunkIndex + 1) + " / " + totalChunks + " chunks - " +
+                formatFileSize(uploadedBytes) + " / " + formatFileSize(file.size)
+            });
+          });
+        });
+      })(i);
+    }
+
+    chain
+      .then(function () {
+        setUploadStatus("上传成功，正在刷新视频列表。", "ok", {
+          progress: 100,
+          meta: finalPath ? "已保存到 " + finalPath : ""
+        });
+        lastUploadFile = null;
+        uploadForm.reset();
+        loadVideos();
+      })
+      .catch(function (error) {
+        setUploadStatus(error.message || "上传失败，请检查视频格式、大小或网络连接后重试。", "err", {
+          progress: Math.round((uploadedBytes / file.size) * 100),
+          meta: "文件仍保留在选择框中，可以直接重新上传。",
+          canRetry: true
+        });
+      })
+      .then(function () {
+        uploadSubmit.disabled = false;
+        uploadSubmit.textContent = "上传";
+      });
   }
 
   function loadCurrentUser() {
@@ -305,7 +411,7 @@
 
   uploadRetry.addEventListener("click", function () {
     if (lastUploadFile) {
-      uploadFile(lastUploadFile);
+      uploadChunkedFile(lastUploadFile);
     }
   });
 
@@ -333,7 +439,7 @@
       return;
     }
 
-    uploadFile(lastUploadFile);
+    uploadChunkedFile(lastUploadFile);
   });
 
   ["dragenter", "dragover"].forEach(function (eventName) {
