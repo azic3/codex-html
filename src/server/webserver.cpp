@@ -539,6 +539,7 @@ bool is_protected_page_path(const std::string &path)
 
     return path == "/app.html" ||
            path == "/video.html" ||
+           path == "/game.html" ||
            path == "/profile.html" ||
            path == "/index.html" ||
            path == "/images" ||
@@ -915,7 +916,8 @@ bool WebServer::addfd(int fd, bool one_shot)
     std::memset(&event, 0, sizeof(event));
     event.data.fd = fd;
     event.events = EPOLLIN | EPOLLRDHUP;
-    if (m_CONNTrigmode == 1 || (fd == m_listenfd && m_LISTENTrigmode == 1))
+    if ((fd == m_listenfd && m_LISTENTrigmode == 1) ||
+        (fd != m_listenfd && m_CONNTrigmode == 1))
     {
         event.events |= EPOLLET;
     }

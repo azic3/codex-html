@@ -224,6 +224,45 @@ http://localhost:9006/video.html
 3: listen ET, conn ET
 ```
 
+## 压力测试结果
+
+压测脚本见 `scripts/bench-modes.sh`，详细说明见 `docs/STRESS_TESTING.md`。
+
+本次测试环境：
+
+```text
+测试地址：http://127.0.0.1:9006
+压测工具：wrk
+压测参数：4 threads, 100 connections, 30s
+测试接口：/login.html、/api/images?page=1&limit=12
+测试时间：2026-05-25 23:31
+```
+
+结果汇总：
+
+```text
+模式  /login.html QPS  P99延迟   /api/images QPS  P99延迟   结论
+0     12355.72         17.61ms   15249.97         14.01ms   基准模式，性能稳定
+1     12184.15         17.63ms   15066.16         14.27ms   已恢复正常，和模式 0 接近
+2     12314.92         17.25ms   15224.38         13.89ms   延迟略稳
+3     12574.72         17.90ms   15765.47         13.45ms   当前综合吞吐最好
+```
+
+分析结论：
+
+- `-m 0` 基准模式可正常工作，`/login.html` 约 1.24 万 QPS，P99 约 17.61ms。
+- `-m 1` 修复后已恢复正常，`listen LT + conn ET` 不再出现 0 请求问题，整体表现和 `-m 0` 接近。
+- `-m 2` 吞吐和 `-m 0` 接近，`/login.html` 的 P99 延迟在本次测试中最低。
+- `-m 3` 当前综合表现最好，`/api/images` 达到约 1.58 万 QPS，P99 约 13.45ms。
+
+当前建议默认使用：
+
+```bash
+./build/server -p 9006 -s 4 -t 8 -m 3
+```
+
+注意：这组结果是服务器本机 `127.0.0.1` 压测，主要用于比较 C++ WebServer 内部触发模式；公网访问、Nginx 反代、HTTPS、数据库写入、上传接口的真实性能需要单独压测。
+
 ## API 概览
 
 登录注册：
@@ -275,3 +314,4 @@ GET  /api/videos
 
 - [docs/SMTP_SETUP.md](docs/SMTP_SETUP.md)
 - [docs/PASSWORD_HASHING.md](docs/PASSWORD_HASHING.md)
+- [docs/STRESS_TESTING.md](docs/STRESS_TESTING.md)
