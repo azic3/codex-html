@@ -99,6 +99,12 @@ private:
     HttpConn::Response handle_upload_video_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_upload_video_chunk_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_list_images_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_my_favorites_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_image_reaction_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_list_image_comments_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_create_image_comment_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_delete_image_comment_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_image_download_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_list_videos_api() const;
     HttpConn::Response handle_media_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_current_user_api(const HttpConn::Request &request) const;
@@ -126,9 +132,11 @@ private:
     std::string sanitize_upload_filename(const std::string &filename) const;
     std::string unique_upload_filename(const std::string &directory_name, const std::string &filename) const;
     bool ensure_directory_exists(const std::string &path) const;
-    std::string build_images_json() const;
-    std::string build_images_page_json(std::size_t page, std::size_t limit) const;
+    bool image_record_file_exists(const CGMysqlPool::ImageRecord &image) const;
+    std::string build_images_json(const std::string &username) const;
+    std::string build_images_page_json(std::size_t page, std::size_t limit, const std::string &username) const;
     std::string build_videos_json() const;
+    void import_existing_images_to_db() const;
     std::string build_cached_images_json() const;
     std::string build_cached_videos_json() const;
     void invalidate_media_list_cache(const std::string &directory_name) const;
@@ -167,6 +175,8 @@ private:
     struct EmailCodeRateState
     {
         time_t last_request_at;
+        time_t minute_window_start;
+        int minute_count;
         time_t daily_window_start;
         int daily_count;
     };

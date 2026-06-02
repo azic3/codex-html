@@ -1,15 +1,20 @@
 :root {
-  --ink: #18231f;
-  --muted: #64736f;
-  --paper: #f0ebe0;
-  --jade: #2a7a6e;
+  --ink: #1a2520;
+  --ink-light: #3d554c;
+  --mist: #c4d4cf;
+  --paper: #e8e3d5;
+  --paper-dark: #d9d2c0;
+  --jade: #1a8a7a;
   --jade-dark: #0d4a42;
   --gold: #c9a84c;
   --gold-light: #f0d080;
   --gold-dark: #8a6020;
-  --cyan: #48ecdd;
-  --line: rgba(24, 35, 31, 0.16);
-  --shadow: 0 22px 60px rgba(10, 25, 20, 0.35);
+  --cyan: #3ef0d8;
+  --cyan-glow: rgba(62, 240, 216, 0.55);
+  --bronze: #a07c48;
+  --bronze-dark: #6b4e28;
+  --cinnabar: #c84931;
+  --shadow: 0 22px 60px rgba(8, 20, 16, 0.4);
 }
 
 * { box-sizing: border-box; }
@@ -24,10 +29,10 @@ body {
   color: var(--ink);
   font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
   background:
-    radial-gradient(circle at 18% 15%, rgba(246, 232, 188, 0.45), transparent 18%),
-    linear-gradient(140deg, rgba(47, 119, 110, 0.22), transparent 34%),
-    linear-gradient(320deg, rgba(185, 128, 52, 0.24), transparent 38%),
-    #dbe8df;
+    radial-gradient(circle at 16% 12%, rgba(248, 242, 210, 0.38), transparent 22%),
+    linear-gradient(140deg, rgba(42, 120, 110, 0.12), transparent 32%),
+    linear-gradient(320deg, rgba(160, 124, 72, 0.12), transparent 36%),
+    #e8e4d8;
   overflow: hidden;
 }
 
@@ -46,9 +51,9 @@ button, a { font: inherit; }
   min-height: 560px;
   margin: 0 auto;
   overflow: hidden;
-  border: 1px solid rgba(201, 168, 76, 0.35);
+  border: 1px solid rgba(201, 168, 76, 0.28);
   border-radius: 8px;
-  background: #d9e8de;
+  background: #dcd6c5;
   box-shadow: var(--shadow);
 }
 
@@ -58,9 +63,9 @@ button, a { font: inherit; }
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 24% 18%, rgba(255, 245, 205, 0.18), transparent 15%),
-    linear-gradient(90deg, rgba(255,255,255,0.14), transparent 25%, transparent 72%, rgba(26,48,44,0.12)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0, rgba(255,255,255,0.035) 1px, transparent 1px, transparent 4px);
+    radial-gradient(circle at 22% 15%, rgba(250, 245, 225, 0.16), transparent 18%),
+    linear-gradient(90deg, rgba(255,255,255,0.12), transparent 22%, transparent 70%, rgba(22,40,34,0.08)),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 4px);
   mix-blend-mode: soft-light;
 }
 
@@ -80,9 +85,9 @@ button, a { font: inherit; }
 .brand, .game-nav {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(201, 168, 76, 0.45);
-  background: rgba(10, 40, 32, 0.82);
-  box-shadow: 0 8px 20px rgba(10, 25, 20, 0.22);
+  border: 1px solid rgba(201, 168, 76, 0.38);
+  background: rgba(18, 32, 26, 0.85);
+  box-shadow: 0 8px 20px rgba(8, 20, 16, 0.28);
   backdrop-filter: blur(12px);
 }
 
@@ -156,14 +161,18 @@ button, a { font: inherit; }
   gap: 6px;
   border: none;
   border-radius: 50%;
-  background: radial-gradient(circle at 38% 32%, #2a8a7e, #0a3830);
-  background-image: none;
+  background:
+    radial-gradient(circle at 40% 35%, #3ec8b8, #1a6a5e),
+    conic-gradient(from 0deg, rgba(62, 210, 190, 0.35), rgba(20, 90, 80, 0.55), rgba(62, 210, 190, 0.35));
+  outline: 1.5px solid rgba(62, 210, 190, 0.5);
+  outline-offset: 3px;
   box-shadow:
-    0 0 0 2px var(--gold),
-    0 0 0 4px rgba(201, 168, 76, 0.15),
-    0 0 0 6px rgba(138, 96, 32, 0.55),
-    0 8px 24px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 0 0 2px rgba(62, 220, 200, 0.55),
+    0 0 0 4px rgba(30, 140, 120, 0.3),
+    0 0 0 6px rgba(15, 80, 65, 0.5),
+    inset 0 1px 0 rgba(160, 255, 240, 0.2),
+    inset 0 -1px 0 rgba(10, 40, 30, 0.3),
+    0 6px 20px rgba(10, 20, 16, 0.45);
   cursor: pointer;
   transition: filter 0.15s, transform 0.1s;
 }
@@ -177,7 +186,7 @@ button, a { font: inherit; }
   height: 20px;
   background: linear-gradient(180deg, var(--gold-light), var(--gold));
   border-radius: 2px;
-  box-shadow: 0 0 8px rgba(240, 208, 128, 0.7);
+  box-shadow: 0 0 10px rgba(240, 208, 128, 0.7);
 }
 
 .pause-button.is-paused span:first-child {
@@ -210,13 +219,13 @@ button, a { font: inherit; }
   min-width: 70px;
   height: 52px;
   padding: 8px 14px;
-  border: 1px solid rgba(201, 168, 76, 0.55);
+  border: 1px solid rgba(180, 140, 80, 0.4);
   border-radius: 4px;
-  background: linear-gradient(135deg, rgba(8, 30, 24, 0.93), rgba(13, 56, 48, 0.88));
+  background: linear-gradient(135deg, rgba(18, 32, 26, 0.94), rgba(22, 42, 34, 0.9));
   box-shadow:
-    0 0 0 1px rgba(138, 96, 32, 0.35),
-    0 8px 20px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(240, 208, 128, 0.08);
+    0 0 0 1px rgba(120, 90, 50, 0.3),
+    0 8px 20px rgba(10, 20, 16, 0.35),
+    inset 0 1px 0 rgba(240, 220, 180, 0.06);
   backdrop-filter: blur(8px);
 }
 
@@ -239,15 +248,25 @@ button, a { font: inherit; }
 
 .score-card {
   position: relative;
-  min-width: 100px;
+  min-width: 120px;
   height: 52px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
-  background: linear-gradient(135deg, rgba(6, 24, 20, 0.96), rgba(10, 46, 40, 0.92)) !important;
-  border-color: rgba(201, 168, 76, 0.75) !important;
+  gap: 10px;
+  padding: 8px 18px 8px 20px;
+  background:
+    radial-gradient(ellipse at 108% 5%, rgba(62, 210, 190, 0.12), transparent 50%),
+    radial-gradient(ellipse at -5% 90%, rgba(20, 36, 30, 0.2), transparent 48%),
+    linear-gradient(180deg, rgba(16, 28, 22, 0.96), rgba(22, 38, 30, 0.93)) !important;
+  border-color: rgba(160, 140, 90, 0.5) !important;
+  border-radius: 4px 10px 6px 4px;
+  box-shadow:
+    0 0 0 1px rgba(140, 120, 70, 0.18),
+    3px 4px 0 rgba(14, 26, 20, 0.1),
+    -1px 3px 0 rgba(14, 26, 20, 0.06),
+    0 14px 30px rgba(8, 18, 14, 0.4) !important;
 }
 
 .score-card span { display: block; }
@@ -257,12 +276,50 @@ button, a { font: inherit; }
   z-index: 1;
   width: auto;
   text-align: center;
-  font-size: 26px;
+  font-family: "KaiTi", "STKaiti", "楷体", "FangSong", serif;
+  font-size: 28px;
   font-weight: 900;
-  color: var(--gold-light);
+  color: #f8eed0;
+  transform: rotate(-3deg);
   text-shadow:
-    0 0 16px rgba(72, 236, 221, 0.55),
-    0 0 32px rgba(72, 236, 221, 0.2);
+    0 0 8px rgba(255, 245, 215, 0.6),
+    0 0 18px rgba(255, 240, 200, 0.3);
+}
+
+.score-card::before {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%) rotate(45deg);
+  background: linear-gradient(135deg, #5ef8e4, #1a9a88);
+  border-radius: 50% 0 50% 50%;
+  box-shadow:
+    0 0 10px rgba(62, 240, 216, 0.7),
+    0 0 22px rgba(62, 240, 216, 0.4);
+  animation: energySpin 3s linear infinite;
+}
+
+.score-card::after {
+  content: "";
+  position: absolute;
+  right: -22px;
+  top: -14px;
+  width: 28px;
+  height: 18px;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(220, 200, 150, 0.5), transparent 70%),
+    radial-gradient(ellipse at 30% 60%, rgba(220, 200, 150, 0.35), transparent 65%),
+    radial-gradient(ellipse at 70% 60%, rgba(220, 200, 150, 0.3), transparent 65%);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(220, 200, 150, 0.2);
+}
+
+@keyframes energySpin {
+  from { transform: translateY(-50%) rotate(45deg); }
+  to { transform: translateY(-50%) rotate(405deg); }
 }
 
 .best-card {
@@ -293,12 +350,18 @@ button, a { font: inherit; }
   width: 24px;
   height: 24px;
   transform: translateY(-50%);
-  background: radial-gradient(circle at 38% 32%, #7ffff4, #0d9e8e);
+  background: radial-gradient(circle at 35% 30%, #a0fff8, #1a8a7a);
   border-radius: 50%;
   box-shadow:
-    0 0 0 2px rgba(72, 236, 221, 0.25),
-    0 0 10px rgba(72, 236, 221, 0.9),
-    0 0 22px rgba(72, 236, 221, 0.45);
+    0 0 0 2px rgba(62, 240, 216, 0.3),
+    0 0 14px rgba(62, 240, 216, 0.8),
+    0 0 28px rgba(62, 240, 216, 0.4);
+  animation: qiPulse 2s ease-in-out infinite;
+}
+
+@keyframes qiPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(62, 240, 216, 0.3), 0 0 14px rgba(62, 240, 216, 0.8), 0 0 28px rgba(62, 240, 216, 0.4); }
+  50% { box-shadow: 0 0 0 2px rgba(62, 240, 216, 0.5), 0 0 20px rgba(62, 240, 216, 1), 0 0 36px rgba(62, 240, 216, 0.6); }
 }
 
 .best-card::before {
@@ -350,9 +413,9 @@ button, a { font: inherit; }
   transform: translate(-50%, -50%);
   padding: 44px 36px 32px;
   background:
-    radial-gradient(ellipse at 15% 88%, rgba(42, 122, 110, 0.13), transparent 48%),
-    radial-gradient(ellipse at 85% 12%, rgba(42, 122, 110, 0.09), transparent 48%),
-    linear-gradient(180deg, rgba(245, 240, 225, 0.98), rgba(228, 220, 198, 0.96));
+    radial-gradient(ellipse at 80% 15%, rgba(62, 240, 216, 0.06), transparent 50%),
+    radial-gradient(ellipse at 15% 85%, rgba(26, 138, 122, 0.08), transparent 45%),
+    linear-gradient(180deg, rgba(240, 235, 220, 0.98), rgba(220, 212, 190, 0.96));
   border: 2px solid var(--gold);
   border-radius: 4px;
   box-shadow:

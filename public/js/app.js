@@ -32,6 +32,14 @@
   var totalSizeNode = document.getElementById("image-total-size");
   var pngCountNode = document.getElementById("image-png-count");
   var averageWidthNode = document.getElementById("image-average-width");
+  var commentDrawer = document.getElementById("comment-drawer");
+  var commentDrawerTitle = document.getElementById("comment-drawer-title");
+  var commentDrawerClose = document.getElementById("comment-drawer-close");
+  var commentCountLabel = document.getElementById("comment-count-label");
+  var commentList = document.getElementById("comment-list");
+  var commentInput = document.getElementById("comment-input");
+  var commentCharCount = document.getElementById("comment-char-count");
+  var commentSubmit = document.getElementById("comment-submit");
 
   var galleryItems = [];
   var imagePage = 1;
@@ -40,9 +48,16 @@
   var imageLoading = false;
   var lastUploadFile = null;
   var canUpload = false;
+  var isLoggedIn = false;
   var activeFilter = "all";
   var imageMetaByUrl = {};
   var imageLazyObserver = null;
+  var activeCommentImage = null;
+  var commentPage = 1;
+  var commentHasMore = false;
+  var commentLoading = false;
+  var pendingPreviewImageId = new URLSearchParams(window.location.search).get("image");
+  var shareAutoOpened = false;
 
   if ("IntersectionObserver" in window) {
     imageLazyObserver = new IntersectionObserver(function (entries) {
@@ -55,6 +70,10 @@
         imageLazyObserver.unobserve(image);
       });
     }, { rootMargin: "260px 0px" });
+  }
+
+  function redirectToLogin() {
+    window.location.href = "/login.html?next=" + encodeURIComponent(window.location.pathname + window.location.search);
   }
 
   function openPreview(src, title) {
@@ -113,6 +132,362 @@
     }
   }
 
+  function mediaFallbackUrl(url) {
+    if (!url || url.indexOf("/media/images/") !== 0) {
+      return "";
+    }
+    return "/images/" + url.slice("/media/images/".length);
+  }
+
+  function currentImageUrl(item) {
+    return item.__activeUrl || item.url;
+  }
+
+  function setImageSource(image, item, url) {
+    item.__activeUrl = url;
+    if (imageLazyObserver) {
+      image.dataset.src = url;
+      imageLazyObserver.observe(image);
+    } else {
+      image.src = url;
+    }
+  }
+
+  function formatCount(value) {
+    var number = Number(value) || 0;
+    if (number >= 10000) {
+      return (number / 10000).toFixed(number >= 100000 ? 0 : 1).replace(/\.0$/, "") + "w";
+    }
+    if (number >= 1000) {
+      return (number / 1000).toFixed(number >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k";
+    }
+    return String(number);
+  }
+
+  function updateReactionButton(button, active, count, activeText, inactiveText) {
+    button.classList.toggle("active", !!active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.querySelector(".action-label").textContent = active ? activeText : inactiveText;
+    button.querySelector(".action-count").textContent = formatCount(count);
+  }
+
+  function requestImageReaction(item, action, active) {
+    if (!item.id) {
+      return Promise.reject(new Error("image id is missing"));
+    }
+
+    return fetch("/api/images/" + encodeURIComponent(item.id) + "/" + action, {
+      method: active ? "POST" : "DELETE",
+      credentials: "same-origin"
+    }).then(function (response) {
+      if (response.status === 401) {
+        redirectToLogin();
+        throw new Error("login required");
+      }
+      if (!response.ok) {
+        throw new Error("image action failed");
+      }
+      return response.json();
+    });
+  }
+
+  function tryOpenRequestedImage() {
+    if (!pendingPreviewImageId) {
+      return;
+    }
+
+    var target = galleryItems.find(function (item) {
+      return String(item.id || "") === String(pendingPreviewImageId);
+    });
+    if (target) {
+      pendingPreviewImageId = "";
+      openPreview(currentImageUrl(target), target.title || target.url);
+      return;
+    }
+
+    if (imageHasMore && !imageLoading) {
+      loadImages(false);
+    }
+  }
+
+  function updateCommentButton(button, count) {
+    button.querySelector(".action-count").textContent = formatCount(count);
+  }
+
+  function getShareUrl(item) {
+    return window.location.origin + "/app.html?image=" + encodeURIComponent(item.id);
+  }
+
+  function showToast(message) {
+    var toast = document.getElementById("toast");
+    if (!toast) {
+      return;
+    }
+    if (toast.__timer) {
+      clearTimeout(toast.__timer);
+    }
+    toast.textContent = message;
+    toast.classList.add("show");
+    toast.__timer = setTimeout(function () {
+      toast.classList.remove("show");
+      toast.__timer = null;
+    }, 2000);
+  }
+
+  function legacyCopy(text) {
+    var textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      showToast("链接已复制");
+    } catch (e) {
+      showToast("复制失败，请手动复制链接");
+    }
+    document.body.removeChild(textarea);
+  }
+
+  function fallbackCopy(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        showToast("链接已复制");
+      }).catch(function () {
+        legacyCopy(text);
+      });
+    } else {
+      legacyCopy(text);
+    }
+  }
+
+  function shareImage(item) {
+    if (!item.id) {
+      return;
+    }
+
+    var shareUrl = getShareUrl(item);
+    var title = item.title || item.url || "分享图片";
+
+    if (navigator.share) {
+      navigator.share({
+        title: title,
+        url: shareUrl
+      }).catch(function (err) {
+        if (err.name !== "AbortError") {
+          fallbackCopy(shareUrl);
+        }
+      });
+    } else {
+      fallbackCopy(shareUrl);
+    }
+  }
+
+  function getImageParamFromUrl() {
+    var params = new URLSearchParams(window.location.search);
+    return params.get("image");
+  }
+
+  function openPreviewById(imageId, items) {
+    var found = null;
+    var candidates = items && items.length ? items : galleryItems;
+
+    for (var i = 0; i < candidates.length; i++) {
+      if (String(candidates[i].id) === String(imageId)) {
+        found = candidates[i];
+        break;
+      }
+    }
+
+    if (found) {
+      openPreview(currentImageUrl(found), found.title || found.url);
+    }
+  }
+
+  function openCommentDrawer(item) {
+    if (!item.id || !commentDrawer) {
+      return;
+    }
+
+    activeCommentImage = item;
+    commentPage = 1;
+    commentHasMore = false;
+    commentDrawerTitle.textContent = displayFileName(item);
+    commentCountLabel.textContent = formatCount(item.comment_count) + " 条评论";
+    commentInput.value = "";
+    commentCharCount.textContent = "0/300";
+    commentList.innerHTML = '<div class="comment-empty">正在加载评论...</div>';
+    commentDrawer.classList.add("open");
+    commentDrawer.setAttribute("aria-hidden", "false");
+    loadComments(1, false);
+  }
+
+  function closeCommentDrawer() {
+    if (!commentDrawer) {
+      return;
+    }
+
+    commentDrawer.classList.remove("open");
+    commentDrawer.setAttribute("aria-hidden", "true");
+    commentList.innerHTML = "";
+    activeCommentImage = null;
+  }
+
+  function renderComments(items, append) {
+    if (!append) {
+      commentList.innerHTML = "";
+    }
+
+    if (!items.length && !append) {
+      commentList.innerHTML = '<div class="comment-empty">还没有评论。</div>';
+      return;
+    }
+
+    items.forEach(function (comment) {
+      var item = document.createElement("div");
+      var meta = document.createElement("div");
+      var name = document.createElement("strong");
+      var time = document.createElement("span");
+      var content = document.createElement("p");
+
+      item.className = "comment-item";
+      meta.className = "comment-meta";
+      name.textContent = comment.username || "用户";
+      time.textContent = comment.created_at || "";
+      content.textContent = comment.content || "";
+      meta.appendChild(name);
+      meta.appendChild(time);
+      item.appendChild(meta);
+      item.appendChild(content);
+
+      if (comment.is_owner) {
+        var remove = document.createElement("button");
+        remove.className = "comment-delete";
+        remove.type = "button";
+        remove.textContent = "删除";
+        remove.addEventListener("click", function () {
+          deleteComment(comment.id);
+        });
+        item.appendChild(remove);
+      }
+
+      commentList.appendChild(item);
+    });
+  }
+
+  function loadComments(page, append) {
+    if (!activeCommentImage || commentLoading || (!append && !activeCommentImage.id)) {
+      return Promise.resolve();
+    }
+    if (append && !commentHasMore) {
+      return Promise.resolve();
+    }
+
+    commentLoading = true;
+    return fetch("/api/images/" + encodeURIComponent(activeCommentImage.id) + "/comments?page=" + page + "&limit=20", {
+      credentials: "same-origin"
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          throw new Error("comments load failed");
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        var items = Array.isArray(data.items) ? data.items : [];
+        activeCommentImage.comment_count = Number(data.total) || 0;
+        commentCountLabel.textContent = formatCount(activeCommentImage.comment_count) + " 条评论";
+        renderComments(items, append);
+        commentHasMore = !!data.has_more;
+        commentPage = page + 1;
+        renderGallery();
+      })
+      .catch(function () {
+        if (!append) {
+          commentList.innerHTML = '<div class="comment-empty">评论加载失败，请稍后重试。</div>';
+        }
+      })
+      .then(function () {
+        commentLoading = false;
+      });
+  }
+
+  function submitComment() {
+    if (!activeCommentImage || !activeCommentImage.id) {
+      return;
+    }
+
+    var content = commentInput.value.trim();
+    if (!content) {
+      return;
+    }
+    if (content.length > 300) {
+      return;
+    }
+
+    commentSubmit.disabled = true;
+    fetch("/api/images/" + encodeURIComponent(activeCommentImage.id) + "/comments", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: "content=" + encodeURIComponent(content)
+    })
+      .then(function (response) {
+        if (response.status === 401) {
+          redirectToLogin();
+          throw new Error("login required");
+        }
+        if (!response.ok) {
+          throw new Error("comment submit failed");
+        }
+        return response.json();
+      })
+      .then(function () {
+        commentInput.value = "";
+        commentCharCount.textContent = "0/300";
+        activeCommentImage.comment_count = (Number(activeCommentImage.comment_count) || 0) + 1;
+        commentCountLabel.textContent = formatCount(activeCommentImage.comment_count) + " 条评论";
+        loadComments(1, false);
+      })
+      .then(function () {
+        commentSubmit.disabled = false;
+      })
+      .catch(function () {
+        commentSubmit.disabled = false;
+      });
+  }
+
+  function deleteComment(commentId) {
+    if (!activeCommentImage || !commentId) {
+      return;
+    }
+    if (!window.confirm("删除这条评论？")) {
+      return;
+    }
+
+    fetch("/api/comments/" + encodeURIComponent(commentId), {
+      method: "DELETE",
+      credentials: "same-origin"
+    })
+      .then(function (response) {
+        if (response.status === 401) {
+          redirectToLogin();
+          throw new Error("login required");
+        }
+        if (!response.ok) {
+          throw new Error("comment delete failed");
+        }
+        return response.json();
+      })
+      .then(function () {
+        activeCommentImage.comment_count = Math.max(0, (Number(activeCommentImage.comment_count) || 0) - 1);
+        commentCountLabel.textContent = formatCount(activeCommentImage.comment_count) + " 条评论";
+        loadComments(1, false);
+      })
+      .catch(function () {});
+  }
+
   function setUploadStatus(text, state, options) {
     options = options || {};
     uploadMessage.textContent = text;
@@ -150,11 +525,13 @@
         return response.json();
       })
       .then(function (user) {
-        canUpload = !!(user && user.ok && user.role === "admin");
+        isLoggedIn = !!(user && user.ok);
+        canUpload = !!(isLoggedIn && user.role === "admin");
         uploadPanel.hidden = !canUpload;
         uploadTrigger.hidden = !canUpload;
       })
       .catch(function () {
+        isLoggedIn = false;
         canUpload = false;
         uploadPanel.hidden = true;
         uploadTrigger.hidden = true;
@@ -236,6 +613,7 @@
     });
 
     xhr.open("POST", "/api/upload");
+    xhr.withCredentials = true;
     xhr.timeout = 10 * 60 * 1000;
     xhr.send(formData);
   }
@@ -259,7 +637,8 @@
       return fileExt(item.title || item.url) === "png";
     }).length;
     var knownWidths = items.map(function (item) {
-      return imageMetaByUrl[item.url] && imageMetaByUrl[item.url].width;
+      var url = currentImageUrl(item);
+      return imageMetaByUrl[url] && imageMetaByUrl[url].width;
     }).filter(Boolean);
     var averageWidth = knownWidths.length
       ? Math.round(knownWidths.reduce(function (sum, value) { return sum + value; }, 0) / knownWidths.length) + "px"
@@ -288,12 +667,13 @@
       return;
     }
 
-    heroPreview.src = items[0].url;
+    heroPreview.src = currentImageUrl(items[0]);
     heroPreview.alt = items[0].title || "图片预览";
     heroPlaceholder.hidden = true;
 
     items.forEach(function (item, index) {
       var fragment = template.content.cloneNode(true);
+      var card = fragment.querySelector(".redesign-image-card");
       var image = fragment.querySelector("img");
       var title = fragment.querySelector(".redesign-image-name");
       var path = fragment.querySelector(".redesign-image-path");
@@ -303,38 +683,78 @@
       var resolution = fragment.querySelector(".img-resolution");
       var previewButton = fragment.querySelector(".preview-action");
       var copyButton = fragment.querySelector(".copy-action");
+      var shareButton = fragment.querySelector(".share-action");
       var downloadButtons = fragment.querySelectorAll(".download-action, .image-mini-action");
+      var footer = fragment.querySelector(".redesign-image-footer");
+      var miniDownload = fragment.querySelector(".image-mini-action");
       var ext = fileExt(item.title || item.url).toUpperCase();
+      var downloadUrl = item.id ? "/api/images/" + encodeURIComponent(item.id) + "/download" : item.url;
+      var actionGroup = document.createElement("div");
+      var likeButton = document.createElement("button");
+      var favoriteButton = document.createElement("button");
+      var commentButton = document.createElement("button");
+
+      actionGroup.className = "image-card-actions";
+      likeButton.className = "image-mini-action image-reaction-action like-action";
+      likeButton.type = "button";
+      likeButton.innerHTML = '<span class="action-label">点赞</span><span class="action-count">0</span>';
+      favoriteButton.className = "image-mini-action image-reaction-action favorite-action";
+      favoriteButton.type = "button";
+      favoriteButton.innerHTML = '<span class="action-label">收藏</span><span class="action-count">0</span>';
+      commentButton.className = "image-mini-action comment-action";
+      commentButton.type = "button";
+      commentButton.innerHTML = '<span class="action-label">评论</span><span class="action-count">0</span>';
+      actionGroup.appendChild(likeButton);
+      actionGroup.appendChild(favoriteButton);
+      actionGroup.appendChild(commentButton);
+      if (miniDownload) {
+        actionGroup.appendChild(miniDownload);
+      }
+      footer.appendChild(actionGroup);
 
       image.alt = item.title || "";
       image.loading = "lazy";
       image.decoding = "async";
-      if (imageLazyObserver) {
-        image.dataset.src = item.url;
-        imageLazyObserver.observe(image);
-      } else {
-        image.src = item.url;
-      }
+      setImageSource(image, item, currentImageUrl(item));
       title.textContent = item.title || item.url;
       path.textContent = displayFileName(item);
       size.textContent = formatFileSize(item.size);
       format.textContent = ext;
       isNew.hidden = index > 1;
-      resolution.textContent = imageMetaByUrl[item.url]
-        ? imageMetaByUrl[item.url].width + "x" + imageMetaByUrl[item.url].height
+      resolution.textContent = imageMetaByUrl[currentImageUrl(item)]
+        ? imageMetaByUrl[currentImageUrl(item)].width + "x" + imageMetaByUrl[currentImageUrl(item)].height
         : "--";
 
       downloadButtons.forEach(function (button) {
-        button.href = item.url;
+        button.href = downloadUrl;
         button.download = getDownloadName(item);
+        button.addEventListener("click", function (event) {
+          if (!isLoggedIn) {
+            event.preventDefault();
+            redirectToLogin();
+            return;
+          }
+          item.download_count = (Number(item.download_count) || 0) + 1;
+        });
       });
+      updateReactionButton(likeButton, item.liked, item.like_count, "已赞", "点赞");
+      updateReactionButton(favoriteButton, item.favorited, item.favorite_count, "已藏", "收藏");
+      updateCommentButton(commentButton, item.comment_count);
+      if (!item.id) {
+        likeButton.disabled = true;
+        favoriteButton.disabled = true;
+        commentButton.disabled = true;
+        likeButton.title = "图片数据尚未入库";
+        favoriteButton.title = "图片数据尚未入库";
+        commentButton.title = "图片数据尚未入库";
+      }
 
       previewButton.addEventListener("click", function () {
-        openPreview(item.url, item.title || item.url);
+        openPreview(currentImageUrl(item), item.title || item.url);
       });
 
       copyButton.addEventListener("click", function () {
-        var value = item.path || item.url;
+        var value = item.path || currentImageUrl(item);
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(value);
         }
@@ -344,8 +764,70 @@
         }, 1200);
       });
 
+      shareButton.addEventListener("click", function () {
+        shareImage(item);
+      });
+
+      likeButton.addEventListener("click", function () {
+        if (!isLoggedIn) {
+          redirectToLogin();
+          return;
+        }
+        var nextActive = !item.liked;
+        likeButton.disabled = true;
+        requestImageReaction(item, "like", nextActive)
+          .then(function (data) {
+            item.liked = !!data.liked;
+            item.favorited = !!data.favorited;
+            item.like_count = Number(data.like_count) || 0;
+            item.favorite_count = Number(data.favorite_count) || 0;
+            updateReactionButton(likeButton, item.liked, item.like_count, "已赞", "点赞");
+            updateReactionButton(favoriteButton, item.favorited, item.favorite_count, "已藏", "收藏");
+          })
+          .catch(function () {
+            updateReactionButton(likeButton, item.liked, item.like_count, "已赞", "点赞");
+          })
+          .then(function () {
+            likeButton.disabled = false;
+          });
+      });
+
+      favoriteButton.addEventListener("click", function () {
+        if (!isLoggedIn) {
+          redirectToLogin();
+          return;
+        }
+        var nextActive = !item.favorited;
+        favoriteButton.disabled = true;
+        requestImageReaction(item, "favorite", nextActive)
+          .then(function (data) {
+            item.liked = !!data.liked;
+            item.favorited = !!data.favorited;
+            item.like_count = Number(data.like_count) || 0;
+            item.favorite_count = Number(data.favorite_count) || 0;
+            updateReactionButton(likeButton, item.liked, item.like_count, "已赞", "点赞");
+            updateReactionButton(favoriteButton, item.favorited, item.favorite_count, "已藏", "收藏");
+          })
+          .catch(function () {
+            updateReactionButton(favoriteButton, item.favorited, item.favorite_count, "已藏", "收藏");
+          })
+          .then(function () {
+            favoriteButton.disabled = false;
+          });
+      });
+
+      commentButton.addEventListener("click", function () {
+        if (!isLoggedIn) {
+          redirectToLogin();
+          return;
+        }
+        openCommentDrawer(item);
+      });
+
       image.addEventListener("load", function () {
-        imageMetaByUrl[item.url] = {
+        item.__missing = false;
+        card.classList.remove("image-load-failed");
+        imageMetaByUrl[currentImageUrl(item)] = {
           width: image.naturalWidth,
           height: image.naturalHeight
         };
@@ -353,8 +835,25 @@
         updateStats(filteredImages());
       });
 
+      image.addEventListener("error", function () {
+        var fallback = mediaFallbackUrl(item.url);
+        if (fallback && currentImageUrl(item) !== fallback) {
+          item.__activeUrl = fallback;
+          image.src = fallback;
+          return;
+        }
+
+        item.__missing = true;
+        card.classList.add("image-load-failed");
+        image.removeAttribute("src");
+        resolution.textContent = "加载失败";
+        updateStats(filteredImages());
+      });
+
       galleryGrid.appendChild(fragment);
     });
+
+    tryOpenRequestedImage();
   }
 
   function loadImages(reset) {
@@ -376,6 +875,14 @@
         imageHasMore = Array.isArray(data) ? false : !!data.has_more;
         imagePage += 1;
         renderGallery();
+
+        if (!shareAutoOpened && items.length > 0) {
+          var targetId = getImageParamFromUrl();
+          if (targetId) {
+            openPreviewById(targetId, items);
+          }
+          shareAutoOpened = true;
+        }
       })
       .catch(function () {
         galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败，请刷新页面或确认服务正在运行。</div>';
@@ -383,6 +890,7 @@
       })
       .then(function () {
         imageLoading = false;
+        tryOpenRequestedImage();
       });
   }
 
@@ -408,6 +916,32 @@
   }
 
   closeButton.addEventListener("click", closePreview);
+  commentDrawerClose.addEventListener("click", closeCommentDrawer);
+
+  commentDrawer.addEventListener("click", function (event) {
+    if (event.target && event.target.getAttribute("data-close") === "comment-drawer") {
+      closeCommentDrawer();
+    }
+  });
+
+  commentSubmit.addEventListener("click", submitComment);
+
+  commentInput.addEventListener("input", function () {
+    commentCharCount.textContent = commentInput.value.length + "/300";
+  });
+
+  commentInput.addEventListener("keydown", function (event) {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      submitComment();
+    }
+  });
+
+  commentList.addEventListener("scroll", function () {
+    var nearBottom = commentList.scrollTop + commentList.clientHeight >= commentList.scrollHeight - 80;
+    if (nearBottom) {
+      loadComments(commentPage, true);
+    }
+  });
 
   lightbox.addEventListener("click", function (event) {
     if (event.target && event.target.getAttribute("data-close") === "lightbox") {
@@ -418,6 +952,7 @@
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
       closePreview();
+      closeCommentDrawer();
     }
   });
 
@@ -426,7 +961,14 @@
     if (!items.length) {
       return;
     }
-    openPreview(items[0].url, items[0].title || items[0].url);
+    openPreview(currentImageUrl(items[0]), items[0].title || items[0].url);
+  });
+
+  heroPreview.addEventListener("error", function () {
+    var fallback = mediaFallbackUrl(heroPreview.getAttribute("src") || "");
+    if (fallback && heroPreview.getAttribute("src") !== fallback) {
+      heroPreview.src = fallback;
+    }
   });
 
   uploadTrigger.addEventListener("click", function () {

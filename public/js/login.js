@@ -91,6 +91,7 @@
   function postForm(url, payload) {
     return fetch(url, {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
       },
@@ -146,7 +147,7 @@
         if (result.ok && result.data.ok) {
           setStatus("登录成功，准备跳转主页。", "ok");
           window.setTimeout(function () {
-            window.location.href = result.data.redirect || "/app.html";
+            window.location.href = result.data.redirect || "/home.html";
           }, 500);
           return;
         }

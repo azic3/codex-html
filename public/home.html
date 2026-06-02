@@ -1,0 +1,596 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>凡人修仙传 - 动漫专题介绍</title>
+    <style>
+        :root {
+            --bg-color: #060a0f;
+            --card-bg: rgba(10, 19, 29, 0.72);
+            --primary-color: #7f9fbd;
+            --accent-color: #d6a43d;
+            --moon-color: #e8e3d1;
+            --ink-blue: #071727;
+            --text-main: #e8edf1;
+            --text-muted: #a7b5c2;
+            --line-gold: rgba(214, 164, 61, 0.28);
+            --line-blue: rgba(127, 159, 189, 0.28);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.8;
+            background-image:
+                radial-gradient(circle at 54% 18%, rgba(232, 227, 209, 0.16), transparent 26%),
+                radial-gradient(circle at 88% 12%, rgba(214, 164, 61, 0.12), transparent 18%),
+                linear-gradient(135deg, #02060a 0%, #071727 46%, #05070b 100%);
+            background-attachment: fixed;
+        }
+
+        .home-bg-video {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.42;
+            z-index: -2;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(circle at 51% 18%, rgba(232, 227, 209, 0.36), transparent 30%),
+                radial-gradient(circle at 87% 9%, rgba(214, 164, 61, 0.2), transparent 16%),
+                linear-gradient(to bottom, rgba(2, 6, 10, 0.26), rgba(6, 10, 15, 0.74) 48%, rgba(6, 10, 15, 0.96));
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        .home-nav {
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 30;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            width: min(920px, calc(100% - 32px));
+        }
+
+        .home-nav a {
+            min-width: 92px;
+            text-align: center;
+            text-decoration: none;
+            color: var(--moon-color);
+            border: 1px solid var(--line-gold);
+            border-radius: 999px;
+            padding: 8px 16px;
+            background: rgba(4, 12, 20, 0.62);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+
+        .home-nav a:hover {
+            border-color: var(--accent-color);
+            background: rgba(214, 164, 61, 0.13);
+            transform: translateY(-1px);
+        }
+
+        /* 顶部横幅 */
+        header {
+            position: relative;
+            height: 50vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            overflow: hidden;
+            border-bottom: 1px solid var(--line-gold);
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(circle at 50% 18%, rgba(232, 227, 209, 0.22), transparent 32%),
+                linear-gradient(to bottom, rgba(2, 6, 10, 0.18), var(--bg-color));
+            z-index: 1;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 2;
+            padding: 0 20px;
+        }
+
+        header h1 {
+            font-size: 3.5rem;
+            letter-spacing: 10px;
+            color: var(--moon-color);
+            text-shadow: 0 0 28px rgba(232, 227, 209, 0.46), 0 0 14px rgba(127, 159, 189, 0.42);
+            margin-bottom: 15px;
+        }
+
+        header p {
+            font-size: 1.2rem;
+            color: var(--accent-color);
+            letter-spacing: 5px;
+            font-weight: 300;
+        }
+
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 14px;
+            margin-top: 28px;
+        }
+
+        .hero-actions a {
+            min-width: 128px;
+            border: 1px solid var(--line-gold);
+            border-radius: 6px;
+            padding: 10px 18px;
+            color: #fff;
+            text-decoration: none;
+            background: rgba(7, 23, 39, 0.62);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+        }
+
+        .hero-actions a.primary {
+            background: linear-gradient(135deg, rgba(127, 159, 189, 0.56), rgba(214, 164, 61, 0.4));
+            border-color: var(--accent-color);
+        }
+
+        /* 主体布局 */
+        .container {
+            max-width: 1000px;
+            margin: -60px auto 60px;
+            padding: 0 20px;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* 磨砂玻璃卡片效果 */
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--line-blue);
+            border-radius: 10px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: 0 22px 58px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(232, 227, 209, 0.08);
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            color: var(--accent-color);
+            margin-bottom: 25px;
+            border-left: 4px solid var(--primary-color);
+            padding-left: 15px;
+            letter-spacing: 2px;
+        }
+
+        /* 动漫档案 */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .info-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border-bottom: 2px solid rgba(127, 159, 189, 0.16);
+        }
+
+        .info-item label {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .info-item span {
+            font-weight: bold;
+            color: #fff;
+            font-size: 1.05rem;
+        }
+
+        /* 剧情简介 */
+        .intro-text {
+            text-indent: 2em;
+            color: #cbd5e1;
+            font-size: 1.1rem;
+            text-align: justify;
+        }
+
+        /* 核心看点 */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+        }
+
+        .feature-box {
+            background: rgba(4, 12, 20, 0.58);
+            border: 1px solid rgba(232, 227, 209, 0.08);
+            padding: 25px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .feature-box:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+            box-shadow: 0 10px 24px rgba(127, 159, 189, 0.12);
+        }
+
+        .feature-box h3 {
+            color: var(--primary-color);
+            margin-bottom: 12px;
+            font-size: 1.2rem;
+        }
+
+        .feature-box p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* 境界划分 */
+        .levels-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .level-tag {
+            background: linear-gradient(135deg, rgba(127, 159, 189, 0.18), rgba(214, 164, 61, 0.1));
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 1rem;
+            border: 1px solid rgba(127, 159, 189, 0.32);
+            color: #e2e8f0;
+            transition: all 0.3s;
+        }
+
+        .level-tag:hover {
+            border-color: var(--accent-color);
+            background: rgba(226, 173, 66, 0.2);
+            cursor: default;
+        }
+
+        .countdown-card {
+            position: relative;
+            overflow: hidden;
+            border-color: rgba(214, 164, 61, 0.32);
+            background:
+                radial-gradient(circle at 82% 12%, rgba(214, 164, 61, 0.12), transparent 24%),
+                linear-gradient(135deg, rgba(7, 23, 39, 0.82), rgba(6, 10, 15, 0.76));
+        }
+
+        .countdown-card::before {
+            content: '';
+            position: absolute;
+            top: -48px;
+            right: -38px;
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(232, 227, 209, 0.22), rgba(232, 227, 209, 0.04) 54%, transparent 68%);
+            pointer-events: none;
+        }
+
+        .countdown-meta {
+            position: relative;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .countdown-date {
+            font-size: 1rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        .countdown-now {
+            text-align: right;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.8;
+        }
+
+        .countdown-now span {
+            color: var(--text-main);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .countdown-display {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 28px;
+        }
+
+        .countdown-unit {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .countdown-num {
+            width: 84px;
+            height: 74px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(214, 164, 61, 0.34);
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(232, 227, 209, 0.08), rgba(4, 12, 20, 0.78));
+            color: var(--moon-color);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 28px rgba(0, 0, 0, 0.22);
+            font-size: 2.45rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .countdown-unit span {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+        }
+
+        .countdown-sep {
+            margin-top: 12px;
+            color: var(--accent-color);
+            font-size: 2.4rem;
+        }
+
+        .countdown-actions {
+            display: flex;
+            justify-content: center;
+        }
+
+        .watch-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(214, 164, 61, 0.62);
+            border-radius: 8px;
+            padding: 11px 28px;
+            background: linear-gradient(135deg, rgba(127, 159, 189, 0.32), rgba(214, 164, 61, 0.28));
+            color: #fff;
+            text-decoration: none;
+            font-size: 1rem;
+            letter-spacing: 2px;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        .watch-link:hover {
+            opacity: 0.86;
+            transform: translateY(-1px);
+        }
+
+        .countdown-opened {
+            text-align: center;
+            color: var(--accent-color);
+            font-size: 1.3rem;
+            letter-spacing: 3px;
+        }
+
+        /* 页脚 */
+        footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            .home-nav { position: absolute; }
+            header h1 { font-size: 2.3rem; letter-spacing: 4px; }
+            header p { font-size: 1rem; letter-spacing: 2px; }
+            .card { padding: 25px; }
+            .container { margin-top: -30px; }
+        }
+    </style>
+</head>
+<body>
+
+    <video class="home-bg-video" src="/assets/home-bg.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+
+    <nav class="home-nav" aria-label="主页导航">
+        <a href="/home.html">主页</a>
+        <a href="/app.html">图片库</a>
+        <a href="/video.html">视频库</a>
+        <a href="/profile.html">个人中心</a>
+    </nav>
+
+    <!-- 视觉Banner区 -->
+    <header>
+        <div class="header-content">
+            <h1>凡人修仙传</h1>
+            <p>凡人肉身，亦可逆天弑神</p>
+            <div class="hero-actions">
+                <a class="primary" href="/app.html">进入图片库</a>
+                <a href="/video.html">进入视频库</a>
+                <a href="/profile.html">个人中心</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 内容容器 -->
+    <div class="container">
+
+        <!-- 开播倒计时 -->
+        <section class="card countdown-card">
+            <h2>开播倒计时</h2>
+
+            <div class="countdown-meta">
+                <div class="countdown-date">
+                    2026年6月13日 11:00 正式开播
+                </div>
+                <div class="countdown-now">
+                    当前时间<br>
+                    <span id="now-time">--</span>
+                </div>
+            </div>
+
+            <div id="cd-display" class="countdown-display">
+                <div class="countdown-unit">
+                    <div id="cd-d" class="countdown-num">--</div>
+                    <span>天</span>
+                </div>
+                <span class="countdown-sep">:</span>
+                <div class="countdown-unit">
+                    <div id="cd-h" class="countdown-num">--</div>
+                    <span>时</span>
+                </div>
+                <span class="countdown-sep">:</span>
+                <div class="countdown-unit">
+                    <div id="cd-m" class="countdown-num">--</div>
+                    <span>分</span>
+                </div>
+                <span class="countdown-sep">:</span>
+                <div class="countdown-unit">
+                    <div id="cd-s" class="countdown-num">--</div>
+                    <span>秒</span>
+                </div>
+            </div>
+
+            <div class="countdown-actions">
+                <a href="https://search.bilibili.com/all?vt=37506270&keyword=%E5%87%A1%E4%BA%BA%E4%BF%AE%E4%BB%99%E4%BC%A0web&from_source=web_search&spm_id_from=333.1007&search_source=5"
+                   target="_blank" rel="noopener" class="watch-link">
+                    ▶ 前往哔哩哔哩观看
+                </a>
+            </div>
+        </section>
+
+        <!-- 动画基础档案 -->
+        <section class="card">
+            <h2>动漫档案</h2>
+            <div class="info-grid">
+                <div class="info-item">
+                    <label>原著作者</label>
+                    <span>忘语</span>
+                </div>
+                <div class="info-item">
+                    <label>播放平台</label>
+                    <span>哔哩哔哩 (Bilibili)</span>
+                </div>
+                <div class="info-item">
+                    <label>制作公司</label>
+                    <span>万维猫动画 / 原力数字科技</span>
+                </div>
+                <div class="info-item">
+                    <label>动画标签</label>
+                    <span>高燃打斗 / 智斗 / 硬核修仙</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 故事简介 -->
+        <section class="card">
+            <h2>故事梗概</h2>
+            <p class="intro-text">
+                一个普通的山村穷小子——韩立，偶然之下进入当地江湖小门派七玄门，凭借自身的努力和合理算计，以及一件神秘的黑色小绿瓶“掌天瓶”，开始了他步步惊心的修仙之旅。
+            </p>
+            <br>
+            <p class="intro-text">
+                这里没有一步登天的血脉，只有尔虞我诈的修仙界法则。从人界到灵界、仙界，韩立凭借着“稳健”的行事风格与杀伐果断的智慧（江湖人称“韩跑跑”），从一个凡人一步步证道长生，开创了一段为人津津乐道的凡人逆袭神话。
+            </p>
+        </section>
+
+        <!-- 核心魅力 -->
+        <section class="card">
+            <h2>核心看点</h2>
+            <div class="features">
+                <div class="feature-box">
+                    <h3>「韩跑跑」的稳健美学</h3>
+                    <p>主角智商极高，绝不无脑硬刚。见势不妙拔腿就跑，杀人夺宝、毁尸灭迹一气呵成，被粉丝戏称为修仙界“教科书级生存指南”。</p>
+                </div>
+                <div class="feature-box">
+                    <h3>国漫顶级 3D 打斗</h3>
+                    <p>采用顶级动作捕捉技术，天下武功、仙家法术、阵法法宝交织。不论是“血色禁地”还是“乱星海大战”，分镜流畅，战斗逻辑严密。</p>
+                </div>
+                <div class="feature-box">
+                    <h3>残酷真实的修真法则</h3>
+                    <p>摒弃了非黑即白的传统套路，展现了一个“大道无情、利益至上”的真实修真界。修士之间为了资源算计争夺，散发着独特的暗黑仙侠魅力。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 修行境界 -->
+        <section class="card">
+            <h2>凡人篇 · 修行境界</h2>
+            <div class="levels-list">
+                <div class="level-tag">练气期</div>
+                <div class="level-tag">筑基期</div>
+                <div class="level-tag">结丹期</div>
+                <div class="level-tag">元婴期</div>
+                <div class="level-tag">化神期</div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 页脚 -->
+    <footer>
+        <p>“道友，请留步。” | 《凡人修仙传》动漫安利专题</p>
+    </footer>
+
+    <script>
+    (function() {
+        var target = new Date('2026-06-13T11:00:00');
+        function pad(n) { return String(n).padStart(2, '0'); }
+        function tick() {
+            var now = new Date();
+            var h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+            document.getElementById('now-time').textContent =
+                now.getFullYear() + '/' + pad(now.getMonth() + 1) + '/' + pad(now.getDate()) + ' ' +
+                pad(h) + ':' + pad(m) + ':' + pad(s);
+            var diff = target - now;
+            if (diff <= 0) {
+                document.getElementById('cd-display').innerHTML =
+                    '<p class="countdown-opened">已开播！点击下方按钮前往观看</p>';
+                return;
+            }
+            document.getElementById('cd-d').textContent = pad(Math.floor(diff / 86400000));
+            document.getElementById('cd-h').textContent = pad(Math.floor(diff % 86400000 / 3600000));
+            document.getElementById('cd-m').textContent = pad(Math.floor(diff % 3600000 / 60000));
+            document.getElementById('cd-s').textContent = pad(Math.floor(diff % 60000 / 1000));
+        }
+        tick();
+        setInterval(tick, 1000);
+    })();
+    </script>
+
+</body>
+</html>
+

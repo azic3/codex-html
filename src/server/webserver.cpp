@@ -30,6 +30,7 @@ const std::size_t kReadBufferSize = 4096;
 const int kConnectionTimeout = 3 * TIMESLOT;
 const int kEmailCodeTimeout = 5 * 60;
 const int kEmailCodeRequestInterval = 60;
+const int kEmailCodeIpMinuteLimit = 5;
 const int kEmailCodeDailyWindow = 24 * 60 * 60;
 const int kEmailCodeDailyLimit = 10;
 const int kEmailCodeMaxFailedAttempts = 5;
@@ -38,6 +39,9 @@ const int kSessionDefaultTtl = 2 * 60 * 60;
 const int kSessionRememberTtl = 7 * 24 * 60 * 60;
 const std::size_t kDefaultImagePageSize = 12;
 const std::size_t kMaxImagePageSize = 100;
+const std::size_t kDefaultCommentPageSize = 20;
+const std::size_t kMaxCommentPageSize = 50;
+const std::size_t kMaxCommentLength = 300;
 const std::size_t kVideoChunkSize = 2 * 1024 * 1024;
 const std::size_t kMaxVideoChunkBodySize = 4 * 1024 * 1024;
 const std::size_t kDefaultMaxImageUploadSize = 20 * 1024 * 1024;
@@ -107,6 +111,36 @@ bool parse_unsigned_number(const std::string &value, unsigned long long &number)
     return true;
 }
 
+std::size_t utf8_codepoint_count(const std::string &value)
+{
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < value.size(); ++i)
+    {
+        const unsigned char ch = static_cast<unsigned char>(value[i]);
+        if ((ch & 0xC0) != 0x80)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+std::size_t utf8_safe_prefix_length(const std::string &value, std::size_t max_bytes)
+{
+    if (value.size() <= max_bytes)
+    {
+        return value.size();
+    }
+
+    std::size_t end = max_bytes;
+    while (end > 0 && (static_cast<unsigned char>(value[end]) & 0xC0) == 0x80)
+    {
+        --end;
+    }
+
+    return end;
+}
+
 bool has_query_param(const std::string &target, const std::string &name)
 {
     const std::size_t query_pos = target.find('?');
@@ -174,6 +208,113 @@ std::size_t query_param_size(const std::string &target,
     }
 
     return fallback;
+}
+
+bool parse_image_reaction_path(const std::string &path, unsigned long long &image_id, std::string &action)
+{
+    const std::string prefix = "/api/images/";
+    if (path.find(prefix) != 0)
+    {
+        return false;
+    }
+
+    const std::size_t action_slash = path.find('/', prefix.size());
+    if (action_slash == std::string::npos)
+    {
+        return false;
+    }
+
+    const std::string id_text = path.substr(prefix.size(), action_slash - prefix.size());
+    if (!parse_unsigned_number(id_text, image_id) || image_id == 0)
+    {
+        return false;
+    }
+
+    action = path.substr(action_slash + 1);
+    return action == "like" || action == "favorite";
+}
+
+bool parse_image_download_path(const std::string &path, unsigned long long &image_id)
+{
+    std::string action;
+    const std::string prefix = "/api/images/";
+    if (path.find(prefix) != 0)
+    {
+        return false;
+    }
+
+    const std::size_t action_slash = path.find('/', prefix.size());
+    if (action_slash == std::string::npos)
+    {
+        return false;
+    }
+
+    const std::string id_text = path.substr(prefix.size(), action_slash - prefix.size());
+    if (!parse_unsigned_number(id_text, image_id) || image_id == 0)
+    {
+        return false;
+    }
+
+    action = path.substr(action_slash + 1);
+    return action == "download";
+}
+
+bool parse_image_comments_path(const std::string &path, unsigned long long &image_id)
+{
+    const std::string prefix = "/api/images/";
+    const std::string suffix = "/comments";
+    if (path.find(prefix) != 0 || path.size() <= prefix.size() + suffix.size())
+    {
+        return false;
+    }
+
+    if (path.compare(path.size() - suffix.size(), suffix.size(), suffix) != 0)
+    {
+        return false;
+    }
+
+    const std::string id_text = path.substr(prefix.size(), path.size() - prefix.size() - suffix.size());
+    return parse_unsigned_number(id_text, image_id) && image_id != 0;
+}
+
+bool parse_image_comment_path(const std::string &path, unsigned long long &comment_id)
+{
+    const std::string prefix = "/api/comments/";
+    if (path.find(prefix) != 0 || path.size() == prefix.size())
+    {
+        return false;
+    }
+
+    const std::string id_text = path.substr(prefix.size());
+    return parse_unsigned_number(id_text, comment_id) && comment_id != 0;
+}
+
+std::string attachment_disposition_header(const std::string &filename, const std::string &encoded_filename)
+{
+    std::string fallback;
+    fallback.reserve(filename.size());
+    for (std::size_t i = 0; i < filename.size(); ++i)
+    {
+        const unsigned char ch = static_cast<unsigned char>(filename[i]);
+        if ((ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '-' || ch == '_' || ch == '.')
+        {
+            fallback.push_back(static_cast<char>(ch));
+        }
+        else
+        {
+            fallback.push_back('_');
+        }
+    }
+
+    if (fallback.empty())
+    {
+        fallback = "image";
+    }
+
+    return "attachment; filename=\"" + fallback + "\"; filename*=UTF-8''" + encoded_filename;
 }
 
 std::string redis_email_code_key(const std::string &phone, const std::string &email)
@@ -525,9 +666,17 @@ bool is_auth_api(const HttpConn::Request &request)
            (request.method == "POST" && request.path == "/api/logout");
 }
 
+bool is_public_browse_api(const HttpConn::Request &request)
+{
+    return (request.method == "GET" && request.path == "/api/images") ||
+           (request.method == "GET" && request.path == "/api/videos");
+}
+
 bool is_protected_api(const HttpConn::Request &request)
 {
-    return request.path.find("/api/") == 0 && !is_auth_api(request);
+    return request.path.find("/api/") == 0 &&
+           !is_auth_api(request) &&
+           !is_public_browse_api(request);
 }
 
 bool is_protected_page_path(const std::string &path)
@@ -537,18 +686,22 @@ bool is_protected_page_path(const std::string &path)
         return false;
     }
 
-    return path == "/app.html" ||
-           path == "/video.html" ||
-           path == "/game.html" ||
+    if (path == "/app.html" ||
+        path == "/home.html" ||
+        path == "/video.html" ||
+        path.find("/media/images/") == 0 ||
+        path.find("/media/videos/") == 0)
+    {
+        return false;
+    }
+
+    return path == "/game.html" ||
            path == "/profile.html" ||
            path == "/index.html" ||
            path == "/images" ||
            path == "/images/" ||
            path == "/videos" ||
            path == "/videos/" ||
-           path.find("/media/images/") == 0 ||
-           path.find("/media/videos/") == 0 ||
-           path.find("/images/") == 0 ||
            path.find("/videos/") == 0;
 }
 
@@ -1912,6 +2065,7 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
         const std::string ip_minute_key = redis_ip_minute_key(ip);
         long long phone_count = 0;
         long long ip_count = 0;
+        long long ip_minute_count = 0;
         std::string minute_marker;
 
         if (m_redis.get(phone_minute_key, minute_marker))
@@ -1926,15 +2080,21 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
             return false;
         }
 
-        if (m_redis.get(ip_minute_key, minute_marker))
-        {
-            detail = "verification code can only be requested once per minute from this IP";
-            return false;
-        }
-        if (!m_redis.last_error().empty())
+        if (!m_redis.incr(ip_minute_key, ip_minute_count))
         {
             detail = "redis unavailable for verification code rate limit";
             AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+        if (ip_minute_count == 1 && !m_redis.expire(ip_minute_key, kEmailCodeRequestInterval))
+        {
+            detail = "redis unavailable for verification code rate limit";
+            AppLogger::error(detail + ": " + m_redis.last_error());
+            return false;
+        }
+        if (ip_minute_count > kEmailCodeIpMinuteLimit)
+        {
+            detail = "verification code can only be requested 5 times per minute from this IP";
             return false;
         }
 
@@ -1969,8 +2129,7 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
             return false;
         }
 
-        if (!m_redis.setex(phone_minute_key, kEmailCodeRequestInterval, "1") ||
-            !m_redis.setex(ip_minute_key, kEmailCodeRequestInterval, "1"))
+        if (!m_redis.setex(phone_minute_key, kEmailCodeRequestInterval, "1"))
         {
             detail = "redis unavailable for verification code rate limit";
             AppLogger::error(detail + ": " + m_redis.last_error());
@@ -1996,15 +2155,20 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
         ip_state.daily_window_start = now;
         ip_state.daily_count = 0;
     }
+    if (ip_state.minute_window_start == 0 || now - ip_state.minute_window_start >= kEmailCodeRequestInterval)
+    {
+        ip_state.minute_window_start = now;
+        ip_state.minute_count = 0;
+    }
 
     if (phone_state.last_request_at > 0 && now - phone_state.last_request_at < kEmailCodeRequestInterval)
     {
         detail = "verification code can only be requested once per minute for this phone number";
         return false;
     }
-    if (ip_state.last_request_at > 0 && now - ip_state.last_request_at < kEmailCodeRequestInterval)
+    if (ip_state.minute_count >= kEmailCodeIpMinuteLimit)
     {
-        detail = "verification code can only be requested once per minute from this IP";
+        detail = "verification code can only be requested 5 times per minute from this IP";
         return false;
     }
     if (phone_state.daily_count >= kEmailCodeDailyLimit)
@@ -2021,6 +2185,7 @@ bool WebServer::consume_email_code_rate_limit(const std::string &phone, const st
     phone_state.last_request_at = now;
     ++phone_state.daily_count;
     ip_state.last_request_at = now;
+    ++ip_state.minute_count;
     ++ip_state.daily_count;
     detail.clear();
     return true;
@@ -2189,18 +2354,64 @@ std::string WebServer::sanitize_upload_filename(const std::string &filename) con
 
     std::string cleaned;
     cleaned.reserve(base.size());
+    bool last_was_separator = false;
     for (std::size_t i = 0; i < base.size(); ++i)
     {
         const unsigned char ch = static_cast<unsigned char>(base[i]);
-        if (ch == '\0' || ch < 32 || ch == 127 ||
-            ch == '/' || ch == '\\' || ch == ':' || ch == '*' ||
-            ch == '?' || ch == '"' || ch == '<' || ch == '>' || ch == '|')
+        if ((ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '-' || ch == '_' || ch == '.')
         {
-            cleaned.push_back('_');
+            cleaned.push_back(static_cast<char>(ch));
+            last_was_separator = false;
             continue;
         }
 
-        cleaned.push_back(base[i]);
+        if (ch < 128)
+        {
+            if (!last_was_separator && !cleaned.empty())
+            {
+                cleaned.push_back('_');
+                last_was_separator = true;
+            }
+            continue;
+        }
+
+        std::size_t sequence_length = 0;
+        if ((ch & 0xE0) == 0xC0)
+        {
+            sequence_length = 2;
+        }
+        else if ((ch & 0xF0) == 0xE0)
+        {
+            sequence_length = 3;
+        }
+        else if ((ch & 0xF8) == 0xF0)
+        {
+            sequence_length = 4;
+        }
+
+        bool valid_utf8 = sequence_length > 0 && i + sequence_length <= base.size();
+        for (std::size_t j = 1; valid_utf8 && j < sequence_length; ++j)
+        {
+            const unsigned char next = static_cast<unsigned char>(base[i + j]);
+            valid_utf8 = (next & 0xC0) == 0x80;
+        }
+
+        if (valid_utf8)
+        {
+            cleaned.append(base, i, sequence_length);
+            i += sequence_length - 1;
+            last_was_separator = false;
+            continue;
+        }
+
+        if (!last_was_separator && !cleaned.empty())
+        {
+            cleaned.push_back('_');
+            last_was_separator = true;
+        }
     }
 
     while (!cleaned.empty() && (cleaned[0] == ' ' || cleaned[0] == '\t' || cleaned[0] == '.'))
@@ -2208,7 +2419,9 @@ std::string WebServer::sanitize_upload_filename(const std::string &filename) con
         cleaned.erase(0, 1);
     }
 
-    while (!cleaned.empty() && (cleaned[cleaned.size() - 1] == ' ' || cleaned[cleaned.size() - 1] == '\t'))
+    while (!cleaned.empty() && (cleaned[cleaned.size() - 1] == ' ' ||
+                                cleaned[cleaned.size() - 1] == '\t' ||
+                                cleaned[cleaned.size() - 1] == '_'))
     {
         cleaned.erase(cleaned.size() - 1);
     }
@@ -2225,11 +2438,11 @@ std::string WebServer::sanitize_upload_filename(const std::string &filename) con
         if (dot != std::string::npos && dot > 0 && cleaned.size() - dot <= 16)
         {
             const std::string ext = cleaned.substr(dot);
-            cleaned = cleaned.substr(0, max_filename_bytes - ext.size()) + ext;
+            cleaned = cleaned.substr(0, utf8_safe_prefix_length(cleaned, max_filename_bytes - ext.size())) + ext;
         }
         else
         {
-            cleaned = cleaned.substr(0, max_filename_bytes);
+            cleaned = cleaned.substr(0, utf8_safe_prefix_length(cleaned, max_filename_bytes));
         }
     }
 
@@ -2285,8 +2498,134 @@ bool WebServer::ensure_directory_exists(const std::string &path) const
     return mkdir(path.c_str(), 0755) == 0 || errno == EEXIST;
 }
 
-std::string WebServer::build_images_json() const
+void WebServer::import_existing_images_to_db() const
 {
+    if (!m_db_pool.available())
+    {
+        return;
+    }
+
+    const std::string directory_path = join_path(m_root, "images");
+    DIR *dir = opendir(directory_path.c_str());
+    if (dir == nullptr)
+    {
+        return;
+    }
+
+    dirent *entry = nullptr;
+    while ((entry = readdir(dir)) != nullptr)
+    {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..")
+        {
+            continue;
+        }
+
+        const std::string full_path = join_path(directory_path, name);
+        if (!file_exists(full_path) || !is_image_extension(name))
+        {
+            continue;
+        }
+
+        struct stat st;
+        std::memset(&st, 0, sizeof(st));
+        if (stat(full_path.c_str(), &st) != 0)
+        {
+            continue;
+        }
+
+        const std::string url = "/media/images/" + url_encode_path_segment(name);
+        unsigned long long image_id = 0;
+        if (!m_db_pool.insert_image(name,
+                                    url,
+                                    "legacy",
+                                    static_cast<unsigned long long>(st.st_size),
+                                    image_id))
+        {
+            AppLogger::error("existing image metadata import failed file=" + name + " detail=" + m_db_pool.last_error());
+        }
+    }
+
+    closedir(dir);
+}
+
+bool WebServer::image_record_file_exists(const CGMysqlPool::ImageRecord &image) const
+{
+    if (image.filename.empty() ||
+        image.filename.find('/') != std::string::npos ||
+        image.filename.find('\\') != std::string::npos ||
+        image.filename.find("..") != std::string::npos ||
+        !is_image_extension(image.filename))
+    {
+        return false;
+    }
+
+    return file_exists(join_path(join_path(m_root, "images"), image.filename));
+}
+
+std::string WebServer::build_images_json(const std::string &username) const
+{
+    if (m_db_pool.available())
+    {
+        std::vector<CGMysqlPool::ImageRecord> db_entries;
+        unsigned long long db_total = 0;
+        if (m_db_pool.fetch_images_page(1, 1000, username, db_entries, db_total))
+        {
+            if (db_total == 0)
+            {
+                import_existing_images_to_db();
+                db_entries.clear();
+                m_db_pool.fetch_images_page(1, 1000, username, db_entries, db_total);
+            }
+
+            std::ostringstream db_body;
+            db_body << "[";
+            bool first = true;
+            std::size_t visible_count = 0;
+            for (std::size_t i = 0; i < db_entries.size(); ++i)
+            {
+                if (!image_record_file_exists(db_entries[i]))
+                {
+                    continue;
+                }
+
+                if (!first)
+                {
+                    db_body << ",";
+                }
+                first = false;
+                ++visible_count;
+
+                const std::string image_url = "/media/images/" + url_encode_path_segment(db_entries[i].filename);
+                db_body << "{"
+                        << "\"id\":" << db_entries[i].id << ","
+                        << "\"title\":\"" << json_escape_string(db_entries[i].filename) << "\","
+                        << "\"filename\":\"" << json_escape_string(db_entries[i].filename) << "\","
+                        << "\"url\":\"" << json_escape_string(image_url) << "\","
+                        << "\"path\":\"" << json_escape_string(image_url) << "\","
+                        << "\"uploader\":\"" << json_escape_string(db_entries[i].uploader) << "\","
+                        << "\"size\":" << db_entries[i].size << ","
+                        << "\"like_count\":" << db_entries[i].like_count << ","
+                        << "\"comment_count\":" << db_entries[i].comment_count << ","
+                        << "\"favorite_count\":" << db_entries[i].favorite_count << ","
+                        << "\"download_count\":" << db_entries[i].download_count << ","
+                        << "\"liked\":" << (db_entries[i].liked ? "true" : "false") << ","
+                        << "\"favorited\":" << (db_entries[i].favorited ? "true" : "false") << ","
+                        << "\"created_at\":\"" << json_escape_string(db_entries[i].created_at) << "\""
+                        << "}";
+            }
+            db_body << "]";
+            if (visible_count > 0)
+            {
+                return db_body.str();
+            }
+
+            AppLogger::error("image list database page had no existing files, falling back to filesystem list");
+        }
+
+        AppLogger::error("image list database read failed: " + m_db_pool.last_error());
+    }
+
     struct ImageEntry
     {
         std::string name;
@@ -2357,8 +2696,77 @@ std::string WebServer::build_images_json() const
     return body.str();
 }
 
-std::string WebServer::build_images_page_json(std::size_t page, std::size_t limit) const
+std::string WebServer::build_images_page_json(std::size_t page, std::size_t limit, const std::string &username) const
 {
+    if (m_db_pool.available())
+    {
+        std::vector<CGMysqlPool::ImageRecord> db_entries;
+        unsigned long long db_total = 0;
+        if (m_db_pool.fetch_images_page(page, limit, username, db_entries, db_total))
+        {
+            if (db_total == 0)
+            {
+                import_existing_images_to_db();
+                db_entries.clear();
+                m_db_pool.fetch_images_page(page, limit, username, db_entries, db_total);
+            }
+
+            const std::size_t end = (page > 0 && limit > 0)
+                                        ? std::min<std::size_t>(static_cast<std::size_t>(db_total), page * limit)
+                                        : 0;
+            std::ostringstream db_body;
+            db_body << "{\"ok\":true,"
+                    << "\"page\":" << page << ","
+                    << "\"limit\":" << limit << ","
+                    << "\"total\":" << db_total << ","
+                    << "\"has_more\":" << (end < db_total ? "true" : "false") << ","
+                    << "\"items\":[";
+            bool first = true;
+            std::size_t visible_count = 0;
+            for (std::size_t i = 0; i < db_entries.size(); ++i)
+            {
+                if (!image_record_file_exists(db_entries[i]))
+                {
+                    continue;
+                }
+
+                if (!first)
+                {
+                    db_body << ",";
+                }
+                first = false;
+                ++visible_count;
+
+                const std::string image_url = "/media/images/" + url_encode_path_segment(db_entries[i].filename);
+                db_body << "{"
+                        << "\"id\":" << db_entries[i].id << ","
+                        << "\"title\":\"" << json_escape_string(db_entries[i].filename) << "\","
+                        << "\"filename\":\"" << json_escape_string(db_entries[i].filename) << "\","
+                        << "\"url\":\"" << json_escape_string(image_url) << "\","
+                        << "\"path\":\"" << json_escape_string(image_url) << "\","
+                        << "\"uploader\":\"" << json_escape_string(db_entries[i].uploader) << "\","
+                        << "\"size\":" << db_entries[i].size << ","
+                        << "\"like_count\":" << db_entries[i].like_count << ","
+                        << "\"comment_count\":" << db_entries[i].comment_count << ","
+                        << "\"favorite_count\":" << db_entries[i].favorite_count << ","
+                        << "\"download_count\":" << db_entries[i].download_count << ","
+                        << "\"liked\":" << (db_entries[i].liked ? "true" : "false") << ","
+                        << "\"favorited\":" << (db_entries[i].favorited ? "true" : "false") << ","
+                        << "\"created_at\":\"" << json_escape_string(db_entries[i].created_at) << "\""
+                        << "}";
+            }
+            db_body << "]}";
+            if (visible_count > 0 || db_total == 0)
+            {
+                return db_body.str();
+            }
+
+            AppLogger::error("image page database results had no existing files, falling back to filesystem list");
+        }
+
+        AppLogger::error("image list database read failed: " + m_db_pool.last_error());
+    }
+
     struct ImageEntry
     {
         std::string name;
@@ -2524,7 +2932,7 @@ std::string WebServer::build_cached_images_json() const
         return cached;
     }
 
-    const std::string body = build_images_json();
+    const std::string body = build_images_json("");
     if (m_redis.enabled() && !m_redis.setex(kRedisImagesListKey, kMediaListCacheTimeout, body))
     {
         AppLogger::error("image list cache write failed: " + m_redis.last_error());
@@ -2855,7 +3263,9 @@ bool WebServer::save_uploaded_video_chunk(const HttpConn::Request &request, std:
 
 HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request) const
 {
-    if (!current_user_is_admin(request))
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin) || !is_admin)
     {
         return build_response_with_body(403,
                                         "Forbidden",
@@ -2875,12 +3285,39 @@ HttpConn::Response WebServer::handle_upload_api(const HttpConn::Request &request
                                             json_escape_string(detail) + "\"}");
     }
 
+    unsigned long long image_id = 0;
+    if (m_db_pool.available())
+    {
+        const std::size_t slash = saved_path.find_last_of('/');
+        const std::string encoded_filename = slash == std::string::npos ? saved_path : saved_path.substr(slash + 1);
+        const std::string filename = m_http_conn.url_decode(encoded_filename);
+        const std::string full_path = join_path(join_path(m_root, "images"), filename);
+        unsigned long long file_size = 0;
+        struct stat st;
+        std::memset(&st, 0, sizeof(st));
+        if (stat(full_path.c_str(), &st) == 0)
+        {
+            file_size = static_cast<unsigned long long>(st.st_size);
+        }
+
+        if (!m_db_pool.insert_image(filename, saved_path, username, file_size, image_id))
+        {
+            AppLogger::error("image metadata insert failed path=" + saved_path + " detail=" + m_db_pool.last_error());
+        }
+    }
+
     AppLogger::info("image upload success path=" + saved_path);
+    std::ostringstream body;
+    body << "{"
+         << "\"ok\":true,"
+         << "\"message\":\"upload success\","
+         << "\"path\":\"" << json_escape_string(saved_path) << "\","
+         << "\"id\":" << image_id
+         << "}";
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    std::string("{\"ok\":true,\"message\":\"upload success\",\"path\":\"") +
-                                        json_escape_string(saved_path) + "\"}");
+                                    body.str());
 }
 
 HttpConn::Response WebServer::handle_upload_video_api(const HttpConn::Request &request) const
@@ -2953,6 +3390,10 @@ HttpConn::Response WebServer::handle_upload_video_chunk_api(const HttpConn::Requ
 
 HttpConn::Response WebServer::handle_list_images_api(const HttpConn::Request &request) const
 {
+    std::string username;
+    bool is_admin = false;
+    get_session(request, username, is_admin);
+
     if (has_query_param(request.raw_target, "page") || has_query_param(request.raw_target, "limit"))
     {
         const std::size_t page = query_param_size(request.raw_target, "page", 1, 1, 1000000);
@@ -2964,13 +3405,472 @@ HttpConn::Response WebServer::handle_list_images_api(const HttpConn::Request &re
         return build_response_with_body(200,
                                         "OK",
                                         "application/json; charset=utf-8",
-                                        build_images_page_json(page, limit));
+                                        build_images_page_json(page, limit, username));
     }
 
     return build_response_with_body(200,
                                     "OK",
                                     "application/json; charset=utf-8",
-                                    build_cached_images_json());
+                                    build_images_json(username));
+}
+
+HttpConn::Response WebServer::handle_my_favorites_api(const HttpConn::Request &request) const
+{
+    if (request.method != "GET")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    const std::size_t page = query_param_size(request.raw_target, "page", 1, 1, 1000000);
+    const std::size_t limit = query_param_size(request.raw_target,
+                                               "limit",
+                                               kDefaultImagePageSize,
+                                               1,
+                                               kMaxImagePageSize);
+    std::vector<CGMysqlPool::FavoriteImageRecord> favorites;
+    unsigned long long total = 0;
+    if (!m_db_pool.fetch_user_favorites(username, page, limit, favorites, total))
+    {
+        AppLogger::error("favorites read failed username=" + username + " detail=" + m_db_pool.last_error());
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"favorites read failed\"}");
+    }
+
+    const std::size_t end = page > 0 && limit > 0
+                                ? std::min<std::size_t>(static_cast<std::size_t>(total), page * limit)
+                                : 0;
+    std::ostringstream body;
+    body << "{\"ok\":true,"
+         << "\"page\":" << page << ","
+         << "\"limit\":" << limit << ","
+         << "\"total\":" << total << ","
+         << "\"has_more\":" << (end < total ? "true" : "false") << ","
+         << "\"items\":[";
+    bool first = true;
+    for (std::size_t i = 0; i < favorites.size(); ++i)
+    {
+        if (!image_record_file_exists(favorites[i].image))
+        {
+            continue;
+        }
+
+        if (!first)
+        {
+            body << ",";
+        }
+        first = false;
+
+        const std::string image_url = "/media/images/" + url_encode_path_segment(favorites[i].image.filename);
+        body << "{"
+             << "\"id\":" << favorites[i].image.id << ","
+             << "\"title\":\"" << json_escape_string(favorites[i].image.filename) << "\","
+             << "\"filename\":\"" << json_escape_string(favorites[i].image.filename) << "\","
+             << "\"url\":\"" << json_escape_string(image_url) << "\","
+             << "\"path\":\"" << json_escape_string(image_url) << "\","
+             << "\"uploader\":\"" << json_escape_string(favorites[i].image.uploader) << "\","
+             << "\"size\":" << favorites[i].image.size << ","
+             << "\"like_count\":" << favorites[i].image.like_count << ","
+             << "\"comment_count\":" << favorites[i].image.comment_count << ","
+             << "\"favorite_count\":" << favorites[i].image.favorite_count << ","
+             << "\"download_count\":" << favorites[i].image.download_count << ","
+             << "\"liked\":" << (favorites[i].image.liked ? "true" : "false") << ","
+             << "\"favorited\":true,"
+             << "\"created_at\":\"" << json_escape_string(favorites[i].image.created_at) << "\","
+             << "\"favorited_at\":\"" << json_escape_string(favorites[i].favorited_at) << "\""
+             << "}";
+    }
+    body << "]}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_image_reaction_api(const HttpConn::Request &request) const
+{
+    unsigned long long image_id = 0;
+    std::string action;
+    if (!parse_image_reaction_path(request.path, image_id, action))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"image action was not found\"}");
+    }
+
+    if (request.method != "POST" && request.method != "DELETE")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    CGMysqlPool::ImageReactionState state;
+    const bool active = request.method == "POST";
+    const bool ok = action == "like"
+                        ? m_db_pool.set_image_like(image_id, username, active, state)
+                        : m_db_pool.set_image_favorite(image_id, username, active, state);
+    if (!ok)
+    {
+        const std::string detail = m_db_pool.last_error();
+        const bool not_found = detail == "Image was not found.";
+        return build_response_with_body(not_found ? 404 : 500,
+                                        not_found ? "Not Found" : "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(not_found ? "image was not found" : "image action failed") + "\"}");
+    }
+
+    std::ostringstream body;
+    body << "{"
+         << "\"ok\":true,"
+         << "\"id\":" << state.image_id << ","
+         << "\"liked\":" << (state.liked ? "true" : "false") << ","
+         << "\"favorited\":" << (state.favorited ? "true" : "false") << ","
+         << "\"like_count\":" << state.like_count << ","
+         << "\"favorite_count\":" << state.favorite_count
+         << "}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_list_image_comments_api(const HttpConn::Request &request) const
+{
+    if (request.method != "GET")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    unsigned long long image_id = 0;
+    if (!parse_image_comments_path(request.path, image_id))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comments endpoint was not found\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    const std::size_t page = query_param_size(request.raw_target, "page", 1, 1, 1000000);
+    const std::size_t limit = query_param_size(request.raw_target,
+                                               "limit",
+                                               kDefaultCommentPageSize,
+                                               1,
+                                               kMaxCommentPageSize);
+    std::vector<CGMysqlPool::ImageCommentRecord> comments;
+    unsigned long long total = 0;
+    if (!m_db_pool.fetch_image_comments(image_id, page, limit, comments, total))
+    {
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comments read failed\"}");
+    }
+
+    const std::size_t end = page > 0 && limit > 0
+                                ? std::min<std::size_t>(static_cast<std::size_t>(total), page * limit)
+                                : 0;
+    std::ostringstream body;
+    body << "{\"ok\":true,"
+         << "\"page\":" << page << ","
+         << "\"limit\":" << limit << ","
+         << "\"total\":" << total << ","
+         << "\"has_more\":" << (end < total ? "true" : "false") << ","
+         << "\"items\":[";
+    for (std::size_t i = 0; i < comments.size(); ++i)
+    {
+        if (i > 0)
+        {
+            body << ",";
+        }
+        body << "{"
+             << "\"id\":" << comments[i].id << ","
+             << "\"image_id\":" << comments[i].image_id << ","
+             << "\"username\":\"" << json_escape_string(comments[i].username) << "\","
+             << "\"content\":\"" << json_escape_string(comments[i].content) << "\","
+             << "\"created_at\":\"" << json_escape_string(comments[i].created_at) << "\","
+             << "\"is_owner\":" << (comments[i].username == username || is_admin ? "true" : "false")
+             << "}";
+    }
+    body << "]}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_create_image_comment_api(const HttpConn::Request &request) const
+{
+    if (request.method != "POST")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    unsigned long long image_id = 0;
+    if (!parse_image_comments_path(request.path, image_id))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comments endpoint was not found\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    std::map<std::string, std::string> fields = m_http_conn.parse_form_urlencoded(request.body);
+    const std::string content = trim_whitespace(fields["content"]);
+    if (content.empty())
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comment content is required\"}");
+    }
+    if (utf8_codepoint_count(content) > kMaxCommentLength)
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comment content is too long\"}");
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    CGMysqlPool::ImageCommentRecord comment;
+    if (!m_db_pool.insert_image_comment(image_id, username, content, comment))
+    {
+        const std::string detail = m_db_pool.last_error();
+        const bool not_found = detail == "Image was not found.";
+        return build_response_with_body(not_found ? 404 : 500,
+                                        not_found ? "Not Found" : "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(not_found ? "image was not found" : "comment create failed") + "\"}");
+    }
+
+    invalidate_media_list_cache("images");
+
+    std::ostringstream body;
+    body << "{\"ok\":true,"
+         << "\"comment\":{"
+         << "\"id\":" << comment.id << ","
+         << "\"image_id\":" << comment.image_id << ","
+         << "\"username\":\"" << json_escape_string(comment.username) << "\","
+         << "\"content\":\"" << json_escape_string(comment.content) << "\","
+         << "\"created_at\":\"" << json_escape_string(comment.created_at) << "\","
+         << "\"is_owner\":true"
+         << "}}";
+    return build_response_with_body(201, "Created", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_delete_image_comment_api(const HttpConn::Request &request) const
+{
+    if (request.method != "DELETE")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    unsigned long long comment_id = 0;
+    if (!parse_image_comment_path(request.path, comment_id))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"comment endpoint was not found\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    unsigned long long image_id = 0;
+    if (!m_db_pool.soft_delete_image_comment(comment_id, username, is_admin, image_id))
+    {
+        const std::string detail = m_db_pool.last_error();
+        const bool not_found = detail == "Comment was not found.";
+        const bool forbidden = detail == "Comment delete is forbidden.";
+        return build_response_with_body(forbidden ? 403 : (not_found ? 404 : 500),
+                                        forbidden ? "Forbidden" : (not_found ? "Not Found" : "Internal Server Error"),
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(forbidden ? "comment delete is forbidden" : (not_found ? "comment was not found" : "comment delete failed")) + "\"}");
+    }
+
+    invalidate_media_list_cache("images");
+    std::ostringstream body;
+    body << "{\"ok\":true,\"id\":" << comment_id << ",\"image_id\":" << image_id << "}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_image_download_api(const HttpConn::Request &request) const
+{
+    if (request.method != "GET")
+    {
+        return build_response_with_body(405,
+                                        "Method Not Allowed",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"method not allowed\"}");
+    }
+
+    unsigned long long image_id = 0;
+    if (!parse_image_download_path(request.path, image_id))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"image download was not found\"}");
+    }
+
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database is unavailable\"}");
+    }
+
+    CGMysqlPool::ImageRecord image;
+    if (!m_db_pool.fetch_image_by_id(image_id, image))
+    {
+        const std::string detail = m_db_pool.last_error();
+        const bool not_found = detail == "Image was not found.";
+        return build_response_with_body(not_found ? 404 : 500,
+                                        not_found ? "Not Found" : "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(not_found ? "image was not found" : "image download failed") + "\"}");
+    }
+
+    if (image.filename.empty() ||
+        image.filename.find('/') != std::string::npos ||
+        image.filename.find('\\') != std::string::npos ||
+        image.filename.find("..") != std::string::npos ||
+        !is_image_extension(image.filename))
+    {
+        return build_response_with_body(403,
+                                        "Forbidden",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"invalid image filename\"}");
+    }
+
+    const std::string full_path = join_path(join_path(m_root, "images"), image.filename);
+    if (!file_exists(full_path))
+    {
+        return build_response_with_body(404,
+                                        "Not Found",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"image file was not found\"}");
+    }
+
+    unsigned long long download_count = 0;
+    if (!m_db_pool.increment_image_download_count(image_id, download_count))
+    {
+        AppLogger::error("image download count update failed id=" + std::to_string(image_id) +
+                         " detail=" + m_db_pool.last_error());
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"image download failed\"}");
+    }
+
+    const std::string encoded_filename = url_encode_path_segment(image.filename);
+    const std::string disposition = attachment_disposition_header(image.filename, encoded_filename);
+    if (get_header_value(request, "X-Accel-Enabled") == "1")
+    {
+        HttpConn::Response response = build_response_with_body(200, "OK", get_content_type(image.filename), "");
+        response.headers["X-Accel-Redirect"] = "/_protected_images/" + encoded_filename;
+        response.headers["Content-Disposition"] = disposition;
+        response.headers["Cache-Control"] = "private";
+        response.headers["X-Image-Download-Count"] = std::to_string(download_count);
+        return response;
+    }
+
+    HttpConn::Response response = build_static_file_response(request, full_path);
+    response.headers["Content-Disposition"] = disposition;
+    response.headers["Cache-Control"] = "private";
+    response.headers["X-Image-Download-Count"] = std::to_string(download_count);
+    return response;
 }
 
 HttpConn::Response WebServer::handle_list_videos_api() const
@@ -2988,18 +3888,33 @@ HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request)
     std::string directory_name;
     std::string accel_prefix;
     std::string filename;
+    std::string raw_filename;
+    std::string raw_path = request.raw_target;
+    const std::size_t raw_query_pos = raw_path.find_first_of("?#");
+    if (raw_query_pos != std::string::npos)
+    {
+        raw_path = raw_path.substr(0, raw_query_pos);
+    }
 
     if (request.path.find(image_prefix) == 0)
     {
         directory_name = "images";
         accel_prefix = "/_protected_images/";
         filename = request.path.substr(image_prefix.size());
+        if (raw_path.find(image_prefix) == 0)
+        {
+            raw_filename = raw_path.substr(image_prefix.size());
+        }
     }
     else if (request.path.find(video_prefix) == 0)
     {
         directory_name = "videos";
         accel_prefix = "/_protected_videos/";
         filename = request.path.substr(video_prefix.size());
+        if (raw_path.find(video_prefix) == 0)
+        {
+            raw_filename = raw_path.substr(video_prefix.size());
+        }
     }
     else
     {
@@ -3014,9 +3929,78 @@ HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request)
         return build_error_response(403, "Forbidden", "<html><body><h1>403 Forbidden</h1></body></html>");
     }
 
-    const bool ext_ok = directory_name == "images" ? is_image_extension(filename)
-                                                   : is_video_extension(filename);
-    const std::string full_path = join_path(join_path(m_root, directory_name), filename);
+    std::string resolved_filename = filename;
+    std::string full_path = join_path(join_path(m_root, directory_name), resolved_filename);
+    bool ext_ok = directory_name == "images" ? is_image_extension(resolved_filename)
+                                             : is_video_extension(resolved_filename);
+    if ((!ext_ok || !file_exists(full_path)) && filename.find('%') != std::string::npos)
+    {
+        const std::string decoded_filename = m_http_conn.url_decode(filename);
+        if (!decoded_filename.empty() &&
+            decoded_filename.find('/') == std::string::npos &&
+            decoded_filename.find('\\') == std::string::npos &&
+            decoded_filename.find("..") == std::string::npos)
+        {
+            const std::string decoded_path = join_path(join_path(m_root, directory_name), decoded_filename);
+            const bool decoded_ext_ok = directory_name == "images" ? is_image_extension(decoded_filename)
+                                                                   : is_video_extension(decoded_filename);
+            if (decoded_ext_ok && file_exists(decoded_path))
+            {
+                resolved_filename = decoded_filename;
+                full_path = decoded_path;
+                ext_ok = true;
+            }
+        }
+    }
+
+    if (!ext_ok || !file_exists(full_path))
+    {
+        const std::string directory_path = join_path(m_root, directory_name);
+        DIR *dir = opendir(directory_path.c_str());
+        if (dir != nullptr)
+        {
+            dirent *entry = nullptr;
+            while ((entry = readdir(dir)) != nullptr)
+            {
+                const std::string candidate = entry->d_name;
+                if (candidate == "." || candidate == ".." ||
+                    candidate.find('/') != std::string::npos ||
+                    candidate.find('\\') != std::string::npos ||
+                    candidate.find("..") != std::string::npos)
+                {
+                    continue;
+                }
+
+                const bool candidate_ext_ok = directory_name == "images" ? is_image_extension(candidate)
+                                                                         : is_video_extension(candidate);
+                if (!candidate_ext_ok)
+                {
+                    continue;
+                }
+
+                const std::string candidate_path = join_path(directory_path, candidate);
+                if (!file_exists(candidate_path))
+                {
+                    continue;
+                }
+
+                const std::string encoded_candidate = url_encode_path_segment(candidate);
+                if (candidate == filename ||
+                    candidate == raw_filename ||
+                    encoded_candidate == filename ||
+                    encoded_candidate == raw_filename)
+                {
+                    resolved_filename = candidate;
+                    full_path = candidate_path;
+                    ext_ok = true;
+                    break;
+                }
+            }
+
+            closedir(dir);
+        }
+    }
+
     if (!ext_ok || !file_exists(full_path))
     {
         return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
@@ -3027,8 +4011,8 @@ HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request)
         return build_static_file_response(request, full_path);
     }
 
-    HttpConn::Response response = build_response_with_body(200, "OK", get_content_type(filename), "");
-    response.headers["X-Accel-Redirect"] = accel_prefix + url_encode_path_segment(filename);
+    HttpConn::Response response = build_response_with_body(200, "OK", get_content_type(resolved_filename), "");
+    response.headers["X-Accel-Redirect"] = accel_prefix + url_encode_path_segment(resolved_filename);
     response.headers["Cache-Control"] = "private";
     return response;
 }
@@ -3081,7 +4065,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
         body << "{"
              << "\"ok\":true,"
              << "\"message\":\"admin login success\","
-             << "\"redirect\":\"/app.html\","
+             << "\"redirect\":\"/home.html\","
              << "\"remember\":" << (remember ? "true" : "false") << ","
              << "\"username\":\"" << json_escape(username) << "\","
              << "\"role\":\"admin\","
@@ -3101,7 +4085,7 @@ HttpConn::Response WebServer::handle_login_api(const HttpConn::Request &request)
         body << "{"
              << "\"ok\":true,"
              << "\"message\":\"database login success\","
-             << "\"redirect\":\"/app.html\","
+             << "\"redirect\":\"/home.html\","
              << "\"remember\":" << (remember ? "true" : "false") << ","
              << "\"username\":\"" << json_escape(username) << "\","
              << "\"role\":\"user\","
@@ -3388,6 +4372,10 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     {
         return handle_current_user_api(request);
     }
+    if (request.method == "GET" && request.path == "/api/me/favorites")
+    {
+        return handle_my_favorites_api(request);
+    }
     if (request.method == "POST" && request.path == "/api/logout")
     {
         return handle_logout_api(request);
@@ -3408,11 +4396,33 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     {
         return handle_list_images_api(request);
     }
+    unsigned long long image_comments_id = 0;
+    if (parse_image_comments_path(request.path, image_comments_id))
+    {
+        return request.method == "GET" ? handle_list_image_comments_api(request)
+                                       : handle_create_image_comment_api(request);
+    }
+    unsigned long long comment_id = 0;
+    if (parse_image_comment_path(request.path, comment_id))
+    {
+        return handle_delete_image_comment_api(request);
+    }
+    unsigned long long image_download_id = 0;
+    if (parse_image_download_path(request.path, image_download_id))
+    {
+        return handle_image_download_api(request);
+    }
+    unsigned long long image_action_id = 0;
+    std::string image_action;
+    if (parse_image_reaction_path(request.path, image_action_id, image_action))
+    {
+        return handle_image_reaction_api(request);
+    }
     if (request.method == "GET" && request.path == "/api/videos")
     {
         return handle_list_videos_api();
     }
-    if (request.method == "GET" &&
+    if ((request.method == "GET" || request.method == "HEAD") &&
         (request.path.find("/media/images/") == 0 || request.path.find("/media/videos/") == 0))
     {
         return handle_media_api(request);
@@ -3426,9 +4436,14 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     std::string effective_path = request.path;
     if (effective_path == "/")
     {
+        const std::string home_path = m_root + "/home.html";
         const std::string login_path = m_root + "/login.html";
         const std::string index_path = m_root + "/index.html";
-        if (file_exists(login_path))
+        if (file_exists(home_path))
+        {
+            effective_path = "/home.html";
+        }
+        else if (file_exists(login_path))
         {
             effective_path = "/login.html";
         }

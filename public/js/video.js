@@ -23,10 +23,15 @@
 
   var lastUploadFile = null;
   var canUpload = false;
+  var isLoggedIn = false;
   var allVideos = [];
   var activeFilter = "all";
   var durationByUrl = {};
   var videoChunkSize = 2 * 1024 * 1024;
+
+  function redirectToLogin() {
+    window.location.href = "/login.html?next=" + encodeURIComponent(window.location.pathname + window.location.search);
+  }
 
   function formatFileSize(bytes) {
     if (!bytes && bytes !== 0) {
@@ -212,11 +217,13 @@
         return response.json();
       })
       .then(function (user) {
-        canUpload = !!(user && user.ok && user.role === "admin");
+        isLoggedIn = !!(user && user.ok);
+        canUpload = !!(isLoggedIn && user.role === "admin");
         uploadPanel.hidden = !canUpload;
         uploadTrigger.hidden = !canUpload;
       })
       .catch(function () {
+        isLoggedIn = false;
         canUpload = false;
         uploadPanel.hidden = true;
         uploadTrigger.hidden = true;
@@ -359,6 +366,12 @@
       duration.textContent = formatDuration(durationByUrl[item.url]);
       size.textContent = formatFileSize(item.size);
       download.href = item.url;
+      download.addEventListener("click", function (event) {
+        if (!isLoggedIn) {
+          event.preventDefault();
+          redirectToLogin();
+        }
+      });
 
       video.addEventListener("loadedmetadata", function () {
         durationByUrl[item.url] = video.duration;

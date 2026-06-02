@@ -1,8 +1,10 @@
 #ifndef CGMYSQL_H
 #define CGMYSQL_H
 
+#include <cstddef>
 #include <queue>
 #include <string>
+#include <vector>
 
 #include <condition_variable>
 #include <mutex>
@@ -30,6 +32,46 @@ typedef char **MYSQL_ROW;
 class CGMysqlPool
 {
 public:
+    struct ImageRecord
+    {
+        unsigned long long id;
+        std::string filename;
+        std::string url;
+        std::string uploader;
+        unsigned long long size;
+        unsigned long long like_count;
+        unsigned long long comment_count;
+        unsigned long long favorite_count;
+        unsigned long long download_count;
+        bool liked;
+        bool favorited;
+        std::string created_at;
+    };
+
+    struct ImageReactionState
+    {
+        unsigned long long image_id;
+        unsigned long long like_count;
+        unsigned long long favorite_count;
+        bool liked;
+        bool favorited;
+    };
+
+    struct ImageCommentRecord
+    {
+        unsigned long long id;
+        unsigned long long image_id;
+        std::string username;
+        std::string content;
+        std::string created_at;
+    };
+
+    struct FavoriteImageRecord
+    {
+        ImageRecord image;
+        std::string favorited_at;
+    };
+
     CGMysqlPool();
     ~CGMysqlPool();
 
@@ -54,9 +96,52 @@ public:
     bool insert_user(const std::string &username, const std::string &password, const std::string &password_version);
     bool update_user_password(const std::string &username, const std::string &password);
     bool update_user_password(const std::string &username, const std::string &password, const std::string &password_version);
+    bool insert_image(const std::string &filename,
+                      const std::string &url,
+                      const std::string &uploader,
+                      unsigned long long size,
+                      unsigned long long &id_out);
+    bool fetch_images_page(std::size_t page,
+                           std::size_t limit,
+                           const std::string &username,
+                           std::vector<ImageRecord> &images_out,
+                           unsigned long long &total_out);
+    bool set_image_like(unsigned long long image_id,
+                        const std::string &username,
+                        bool active,
+                        ImageReactionState &state_out);
+    bool set_image_favorite(unsigned long long image_id,
+                            const std::string &username,
+                            bool active,
+                            ImageReactionState &state_out);
+    bool insert_image_comment(unsigned long long image_id,
+                              const std::string &username,
+                              const std::string &content,
+                              ImageCommentRecord &comment_out);
+    bool fetch_image_comments(unsigned long long image_id,
+                              std::size_t page,
+                              std::size_t limit,
+                              std::vector<ImageCommentRecord> &comments_out,
+                              unsigned long long &total_out);
+    bool fetch_user_favorites(const std::string &username,
+                              std::size_t page,
+                              std::size_t limit,
+                              std::vector<FavoriteImageRecord> &favorites_out,
+                              unsigned long long &total_out);
+    bool soft_delete_image_comment(unsigned long long comment_id,
+                                   const std::string &username,
+                                   bool is_admin,
+                                   unsigned long long &image_id_out);
+    bool fetch_image_by_id(unsigned long long image_id, ImageRecord &image_out);
+    bool increment_image_download_count(unsigned long long image_id, unsigned long long &download_count_out);
 
 private:
     void set_error(const std::string &message);
+    bool set_image_reaction(unsigned long long image_id,
+                            const std::string &username,
+                            bool active,
+                            bool favorite,
+                            ImageReactionState &state_out);
 
 private:
     std::queue<MYSQL *> m_connections;
@@ -71,6 +156,7 @@ private:
     int m_max_conn;
     bool m_initialized;
     bool m_password_version_supported;
+    bool m_images_table_supported;
 };
 
 class CGMysqlGuard

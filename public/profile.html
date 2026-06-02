@@ -19,11 +19,12 @@
       </div>
 
       <nav class="app-nav" aria-label="主导航">
+        <a href="/home.html">主页</a>
         <a href="/app.html">图片库</a>
         <a href="/video.html">视频库</a>
         <a href="/game.html">游戏</a>
-        <a href="/images/">图片目录</a>
-        <a href="/videos/">视频目录</a>
+        <a href="/images/" data-admin-only>图片目录</a>
+        <a href="/videos/" data-admin-only>视频目录</a>
         <a class="active" href="/profile.html">个人中心</a>
         <a href="/login.html">退出登录</a>
       </nav>
@@ -74,6 +75,18 @@
             <li>正在加载权限信息。</li>
           </ul>
         </article>
+      </section>
+
+      <section class="favorites-section">
+        <div class="favorites-head">
+          <div>
+            <div class="eyebrow">Favorites</div>
+            <h2>我的收藏 <b id="favorites-count">0</b></h2>
+          </div>
+          <a class="action-btn secondary" href="/app.html">去图片库看看</a>
+        </div>
+        <div class="favorites-grid" id="favorites-grid"></div>
+        <div class="favorites-status" id="favorites-status">正在加载收藏图片。</div>
       </section>
 
       <section class="profile-actions">

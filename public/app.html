@@ -31,6 +31,7 @@
       </div>
 
       <nav class="video-nav" aria-label="主导航">
+        <a href="/home.html"><span class="nav-icon">H</span>主页</a>
         <span class="video-nav-section">· 媒体库 ·</span>
         <a class="active" href="/app.html"><span class="nav-icon">I</span>图片库</a>
         <a href="/video.html"><span class="nav-icon">V</span>视频库</a>
@@ -163,6 +164,7 @@
           <button class="image-overlay-btn preview-action" type="button">预览</button>
           <a class="image-overlay-btn download-action" href="#" download>下载</a>
           <button class="image-overlay-btn copy-action" type="button">复制</button>
+          <button class="image-overlay-btn share-action" type="button">分享</button>
         </div>
         <span class="img-fmt"></span>
         <span class="img-new">新</span>
@@ -179,6 +181,28 @@
     </article>
   </template>
 
+  <div class="comment-drawer" id="comment-drawer" aria-hidden="true">
+    <div class="comment-drawer-backdrop" data-close="comment-drawer"></div>
+    <aside class="comment-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="comment-drawer-title">
+      <div class="comment-drawer-head">
+        <div>
+          <span>Comments</span>
+          <h3 id="comment-drawer-title">评论</h3>
+        </div>
+        <button class="comment-drawer-close" type="button" id="comment-drawer-close">关闭</button>
+      </div>
+      <div class="comment-drawer-count" id="comment-count-label">0 条评论</div>
+      <div class="comment-drawer-body" id="comment-list"></div>
+      <div class="comment-drawer-foot">
+        <textarea id="comment-input" maxlength="300" placeholder="写下你的评论..." rows="3"></textarea>
+        <div class="comment-submit-row">
+          <span class="comment-char-count" id="comment-char-count">0/300</span>
+          <button class="video-btn primary" type="button" id="comment-submit">发布</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
   <div class="lightbox" id="lightbox" aria-hidden="true">
     <div class="lightbox-backdrop" data-close="lightbox"></div>
     <div class="lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="lightbox-title">
@@ -193,6 +217,8 @@
       </div>
     </div>
   </div>
+
+  <div class="toast" id="toast" aria-live="polite"></div>
 
   <script src="/js/app.js"></script>
 </body>

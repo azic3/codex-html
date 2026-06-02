@@ -1,7 +1,8 @@
 .profile-panel,
 .profile-card,
 .profile-actions,
-.profile-status {
+.profile-status,
+.favorites-section {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -106,6 +107,123 @@
   padding: 18px;
 }
 
+.favorites-section {
+  margin-top: 18px;
+  padding: 20px;
+}
+
+.favorites-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.favorites-head h2 {
+  margin: 6px 0 0;
+  font-size: 22px;
+}
+
+.favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.favorite-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.favorite-thumb {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: #eef2f7;
+}
+
+.favorite-thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.favorite-card-body {
+  padding: 12px;
+}
+
+.favorite-card-body > strong {
+  display: block;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.favorite-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.favorite-remove {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--danger);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.favorite-remove:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.favorites-empty {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 34px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.favorites-empty a {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.favorites-status {
+  min-height: 20px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.favorites-status.err {
+  color: var(--danger);
+}
+
 .action-btn.danger {
   border-color: var(--danger);
   background: var(--danger);
@@ -138,6 +256,11 @@
 @media (max-width: 900px) {
   .profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .favorites-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
