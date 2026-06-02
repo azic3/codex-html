@@ -695,8 +695,7 @@ bool is_protected_page_path(const std::string &path)
         return false;
     }
 
-    return path == "/game.html" ||
-           path == "/profile.html" ||
+    return path == "/profile.html" ||
            path == "/index.html" ||
            path == "/images" ||
            path == "/images/" ||
