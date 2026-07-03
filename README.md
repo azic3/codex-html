@@ -35,7 +35,7 @@ Nginx :80
 当前服务器参考路径：
 
 ```text
-/root/codexhtml
+/var/www/codexhtml
 ```
 
 Nginx 示例配置见：
@@ -48,7 +48,7 @@ docs/nginx-x-accel-example.conf
 
 - 正式部署时应通过 `http://116.62.240.214/app.html` 访问，不要直接暴露或访问 `:9006`。
 - C++ 服务建议只监听或仅允许本机 Nginx 访问 `127.0.0.1:9006`。
-- 修改后端代码后，需要在 Linux 服务器上重新执行 `make` 并重启 `./build/server`。
+- 修改后端代码后，需要在 Linux 服务器 `/var/www/codexhtml` 下重新执行 `make` 并重启 `./build/server`。
 - 修改 Nginx 配置后，需要执行 `sudo nginx -t` 和 `sudo systemctl reload nginx`。
 
 ## 已实现的关键能力

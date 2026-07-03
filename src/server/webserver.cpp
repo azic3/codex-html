@@ -47,7 +47,9 @@ const std::size_t kMaxVideoChunkBodySize = 4 * 1024 * 1024;
 const std::size_t kDefaultMaxImageUploadSize = 20 * 1024 * 1024;
 const std::size_t kDefaultMaxVideoUploadSize = 1024ULL * 1024 * 1024;
 const unsigned long long kVideoRangeChunkSize = 1024ULL * 1024ULL;
+const int kImageThumbnailMaxDimension = 480;
 const char *kSessionCookieName = "XIAOCHEN_SESSION";
+const char *kImageThumbnailDirectory = ".thumbs";
 const char *kRedisEmailCodePrefix = "xiaochen:email_code:";
 const char *kRedisEmailCodeFailedPrefix = "xiaochen:email_code_failed:";
 const char *kRedisEmailCodePhoneDailyPrefix = "xiaochen:email_code_daily:phone:";
@@ -488,6 +490,12 @@ bool is_safe_upload_extension(const std::string &path)
            ext == "bmp" || ext == "webp" || ext == "svg";
 }
 
+bool is_safe_avatar_extension(const std::string &path)
+{
+    const std::string ext = lower_ext(path);
+    return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp";
+}
+
 bool is_video_extension(const std::string &path)
 {
     const std::string ext = lower_ext(path);
@@ -588,6 +596,24 @@ std::string json_escape(const std::string &value)
         }
     }
     return escaped;
+}
+
+std::string shell_quote(const std::string &value)
+{
+    std::string quoted = "'";
+    for (std::size_t i = 0; i < value.size(); ++i)
+    {
+        if (value[i] == '\'')
+        {
+            quoted += "'\\''";
+        }
+        else
+        {
+            quoted.push_back(value[i]);
+        }
+    }
+    quoted += "'";
+    return quoted;
 }
 
 std::string format_byte_limit(std::size_t bytes)
@@ -1160,7 +1186,7 @@ void WebServer::eventListen()
     sockaddr_in address;
     std::memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     address.sin_port = htons(m_port);
 
     if (bind(m_listenfd, reinterpret_cast<sockaddr *>(&address), sizeof(address)) < 0)
@@ -2562,6 +2588,94 @@ bool WebServer::image_record_file_exists(const CGMysqlPool::ImageRecord &image) 
     return file_exists(join_path(join_path(m_root, "images"), image.filename));
 }
 
+std::string WebServer::image_thumbnail_filename(const std::string &filename) const
+{
+    return filename + ".thumb.webp";
+}
+
+bool WebServer::ensure_image_thumbnail(const std::string &filename) const
+{
+    if (filename.empty() ||
+        filename.find('/') != std::string::npos ||
+        filename.find('\\') != std::string::npos ||
+        filename.find("..") != std::string::npos ||
+        !is_image_extension(filename))
+    {
+        return false;
+    }
+
+    const std::string ext = lower_ext(filename);
+    if (ext == "svg" || ext == "gif" || ext == "ico" || ext == "avif")
+    {
+        return false;
+    }
+
+    const std::string images_path = join_path(m_root, "images");
+    const std::string source_path = join_path(images_path, filename);
+    if (!file_exists(source_path))
+    {
+        return false;
+    }
+
+    const std::string thumbs_path = join_path(images_path, kImageThumbnailDirectory);
+    if (!ensure_directory_exists(thumbs_path))
+    {
+        AppLogger::error("image thumbnail directory create failed path=" + thumbs_path);
+        return false;
+    }
+
+    const std::string thumb_name = image_thumbnail_filename(filename);
+    const std::string thumb_path = join_path(thumbs_path, thumb_name);
+    if (file_exists(thumb_path))
+    {
+        return true;
+    }
+
+    const std::string temp_path = thumb_path + ".tmp";
+    const std::string resize_arg = std::to_string(kImageThumbnailMaxDimension) + "x" +
+                                   std::to_string(kImageThumbnailMaxDimension) + ">";
+    const std::string input_arg = source_path + "[0]";
+    const std::string common_args = shell_quote(input_arg) +
+                                    " -auto-orient -thumbnail " + shell_quote(resize_arg) +
+                                    " -strip -quality 80 " + shell_quote(temp_path);
+    const std::string magick_cmd = "command -v magick >/dev/null 2>&1 && magick " + common_args;
+    const std::string convert_cmd = "command -v convert >/dev/null 2>&1 && convert " + common_args;
+
+    int rc = std::system(magick_cmd.c_str());
+    if (rc != 0)
+    {
+        rc = std::system(convert_cmd.c_str());
+    }
+
+    if (rc != 0 || !file_exists(temp_path))
+    {
+        std::remove(temp_path.c_str());
+        AppLogger::error("image thumbnail generation skipped file=" + filename +
+                         " detail=ImageMagick magick/convert unavailable or failed");
+        return false;
+    }
+
+    if (std::rename(temp_path.c_str(), thumb_path.c_str()) != 0)
+    {
+        std::remove(temp_path.c_str());
+        AppLogger::error("image thumbnail finalize failed file=" + filename + " errno=" + std::to_string(errno));
+        return false;
+    }
+
+    return true;
+}
+
+std::string WebServer::image_thumbnail_url(const std::string &filename, const std::string &fallback_url) const
+{
+    if (!ensure_image_thumbnail(filename))
+    {
+        return fallback_url;
+    }
+
+    return std::string("/media/images/") + kImageThumbnailDirectory + "/" +
+           url_encode_path_segment(image_thumbnail_filename(filename));
+}
+
 std::string WebServer::build_images_json(const std::string &username) const
 {
     if (m_db_pool.available())
@@ -2596,11 +2710,13 @@ std::string WebServer::build_images_json(const std::string &username) const
                 ++visible_count;
 
                 const std::string image_url = "/media/images/" + url_encode_path_segment(db_entries[i].filename);
+                const std::string thumb_url = image_thumbnail_url(db_entries[i].filename, image_url);
                 db_body << "{"
                         << "\"id\":" << db_entries[i].id << ","
                         << "\"title\":\"" << json_escape_string(db_entries[i].filename) << "\","
                         << "\"filename\":\"" << json_escape_string(db_entries[i].filename) << "\","
                         << "\"url\":\"" << json_escape_string(image_url) << "\","
+                        << "\"thumb_url\":\"" << json_escape_string(thumb_url) << "\","
                         << "\"path\":\"" << json_escape_string(image_url) << "\","
                         << "\"uploader\":\"" << json_escape_string(db_entries[i].uploader) << "\","
                         << "\"size\":" << db_entries[i].size << ","
@@ -2681,9 +2797,11 @@ std::string WebServer::build_images_json(const std::string &username) const
     for (std::size_t i = 0; i < entries.size(); ++i)
     {
         const std::string url = "/media/images/" + url_encode_path_segment(entries[i].name);
+        const std::string thumb_url = image_thumbnail_url(entries[i].name, url);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
+             << "\"thumb_url\":\"" << json_escape_string(thumb_url) << "\","
              << "\"path\":\"" << json_escape_string(url) << "\""
              << "}";
         if (i + 1 < entries.size())
@@ -2737,11 +2855,13 @@ std::string WebServer::build_images_page_json(std::size_t page, std::size_t limi
                 ++visible_count;
 
                 const std::string image_url = "/media/images/" + url_encode_path_segment(db_entries[i].filename);
+                const std::string thumb_url = image_thumbnail_url(db_entries[i].filename, image_url);
                 db_body << "{"
                         << "\"id\":" << db_entries[i].id << ","
                         << "\"title\":\"" << json_escape_string(db_entries[i].filename) << "\","
                         << "\"filename\":\"" << json_escape_string(db_entries[i].filename) << "\","
                         << "\"url\":\"" << json_escape_string(image_url) << "\","
+                        << "\"thumb_url\":\"" << json_escape_string(thumb_url) << "\","
                         << "\"path\":\"" << json_escape_string(image_url) << "\","
                         << "\"uploader\":\"" << json_escape_string(db_entries[i].uploader) << "\","
                         << "\"size\":" << db_entries[i].size << ","
@@ -2833,9 +2953,11 @@ std::string WebServer::build_images_page_json(std::size_t page, std::size_t limi
     for (std::size_t i = offset; i < end; ++i)
     {
         const std::string url = "/media/images/" + url_encode_path_segment(entries[i].name);
+        const std::string thumb_url = image_thumbnail_url(entries[i].name, url);
         body << "{"
              << "\"title\":\"" << json_escape_string(entries[i].name) << "\","
              << "\"url\":\"" << json_escape_string(url) << "\","
+             << "\"thumb_url\":\"" << json_escape_string(thumb_url) << "\","
              << "\"path\":\"" << json_escape_string(url) << "\","
              << "\"size\":" << entries[i].size
              << "}";
@@ -2974,6 +3096,137 @@ bool WebServer::save_uploaded_image(const HttpConn::Request &request,
                                     std::string &detail) const
 {
     return save_uploaded_media(request, "images", "image", true, saved_path, detail);
+}
+
+bool WebServer::save_uploaded_avatar(const HttpConn::Request &request,
+                                     const std::string &username,
+                                     std::string &saved_path,
+                                     std::string &detail) const
+{
+    const std::size_t max_avatar_size = 2 * 1024 * 1024;
+    if (request.body.size() > max_avatar_size + 4096)
+    {
+        detail = "avatar is too large, max size is 2MB";
+        return false;
+    }
+
+    const std::string content_type = get_header_value(request, "Content-Type");
+    const std::string boundary_key = "boundary=";
+    const std::size_t boundary_pos = content_type.find(boundary_key);
+    if (boundary_pos == std::string::npos)
+    {
+        detail = "missing multipart boundary";
+        return false;
+    }
+
+    std::string boundary = "--" + content_type.substr(boundary_pos + boundary_key.size());
+    const std::size_t semicolon = boundary.find(';');
+    if (semicolon != std::string::npos)
+    {
+        boundary = boundary.substr(0, semicolon);
+    }
+
+    const std::size_t first_boundary = request.body.find(boundary);
+    if (first_boundary == std::string::npos)
+    {
+        detail = "invalid multipart body";
+        return false;
+    }
+
+    const std::size_t header_start = first_boundary + boundary.size() + 2;
+    const std::size_t header_end = request.body.find("\r\n\r\n", header_start);
+    if (header_end == std::string::npos)
+    {
+        detail = "multipart headers are incomplete";
+        return false;
+    }
+
+    const std::string part_headers = request.body.substr(header_start, header_end - header_start);
+    const std::string name_key = "name=\"";
+    const std::size_t field_pos = part_headers.find(name_key);
+    if (field_pos == std::string::npos)
+    {
+        detail = "multipart field is missing";
+        return false;
+    }
+    const std::size_t field_start = field_pos + name_key.size();
+    const std::size_t field_end = part_headers.find('"', field_start);
+    if (field_end == std::string::npos || part_headers.substr(field_start, field_end - field_start) != "avatar")
+    {
+        detail = "unexpected multipart field";
+        return false;
+    }
+
+    const std::string filename_key = "filename=\"";
+    const std::size_t filename_pos = part_headers.find(filename_key);
+    if (filename_pos == std::string::npos)
+    {
+        detail = "no file was selected";
+        return false;
+    }
+
+    const std::size_t filename_start = filename_pos + filename_key.size();
+    const std::size_t filename_end = part_headers.find('"', filename_start);
+    if (filename_end == std::string::npos)
+    {
+        detail = "invalid upload filename";
+        return false;
+    }
+
+    const std::string safe_filename = sanitize_upload_filename(part_headers.substr(filename_start, filename_end - filename_start));
+    if (!is_safe_avatar_extension(safe_filename))
+    {
+        detail = "only png, jpg, jpeg, webp are supported";
+        return false;
+    }
+
+    const std::size_t data_start = header_end + 4;
+    const std::string end_boundary = "\r\n" + boundary;
+    const std::size_t data_end = request.body.find(end_boundary, data_start);
+    if (data_end == std::string::npos || data_end < data_start)
+    {
+        detail = "multipart file data is incomplete";
+        return false;
+    }
+    if (data_end - data_start > max_avatar_size)
+    {
+        detail = "avatar is too large, max size is 2MB";
+        return false;
+    }
+
+    const std::string images_path = join_path(m_root, "images");
+    const std::string avatars_path = join_path(images_path, "avatars");
+    if (!ensure_directory_exists(images_path) || !ensure_directory_exists(avatars_path))
+    {
+        detail = "failed to create avatars directory";
+        return false;
+    }
+
+    const std::string ext = lower_ext(safe_filename);
+    const std::string safe_username = sanitize_upload_filename(username);
+    const std::string avatar_filename = unique_upload_filename("images/avatars", "avatar_" + safe_username + "." + ext);
+    const std::string full_path = join_path(avatars_path, avatar_filename);
+    errno = 0;
+    std::ofstream output(full_path.c_str(), std::ios::out | std::ios::binary);
+    if (!output.is_open())
+    {
+        detail = "failed to open target avatar file: " + full_path + " errno=" + std::to_string(errno);
+        return false;
+    }
+
+    output.write(request.body.data() + static_cast<std::string::difference_type>(data_start),
+                 static_cast<std::streamsize>(data_end - data_start));
+    output.close();
+
+    if (!output)
+    {
+        detail = "failed to save uploaded avatar";
+        return false;
+    }
+
+    saved_path = "/media/images/avatars/" + url_encode_path_segment(avatar_filename);
+    detail.clear();
+    return true;
 }
 
 bool WebServer::save_uploaded_media(const HttpConn::Request &request,
@@ -3127,6 +3380,11 @@ bool WebServer::save_uploaded_media(const HttpConn::Request &request,
         detail = expect_image ? "failed to save uploaded image"
                               : "failed to save uploaded video";
         return false;
+    }
+
+    if (expect_image)
+    {
+        ensure_image_thumbnail(final_name);
     }
 
     saved_path = "/media/" + directory_name + "/" + url_encode_path_segment(final_name);
@@ -3480,11 +3738,13 @@ HttpConn::Response WebServer::handle_my_favorites_api(const HttpConn::Request &r
         first = false;
 
         const std::string image_url = "/media/images/" + url_encode_path_segment(favorites[i].image.filename);
+        const std::string thumb_url = image_thumbnail_url(favorites[i].image.filename, image_url);
         body << "{"
              << "\"id\":" << favorites[i].image.id << ","
              << "\"title\":\"" << json_escape_string(favorites[i].image.filename) << "\","
              << "\"filename\":\"" << json_escape_string(favorites[i].image.filename) << "\","
              << "\"url\":\"" << json_escape_string(image_url) << "\","
+             << "\"thumb_url\":\"" << json_escape_string(thumb_url) << "\","
              << "\"path\":\"" << json_escape_string(image_url) << "\","
              << "\"uploader\":\"" << json_escape_string(favorites[i].image.uploader) << "\","
              << "\"size\":" << favorites[i].image.size << ","
@@ -3920,10 +4180,31 @@ HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request)
         return build_error_response(404, "Not Found", "<html><body><h1>404 Not Found</h1></body></html>");
     }
 
+    bool avatar_image_path = false;
+    bool thumbnail_image_path = false;
+    if (directory_name == "images" && filename.find("avatars/") == 0)
+    {
+        const std::string avatar_name = filename.substr(std::string("avatars/").size());
+        avatar_image_path = !avatar_name.empty() &&
+                            avatar_name.find('/') == std::string::npos &&
+                            avatar_name.find('\\') == std::string::npos &&
+                            avatar_name.find("..") == std::string::npos &&
+                            is_image_extension(avatar_name);
+    }
+    if (directory_name == "images" && filename.find(std::string(kImageThumbnailDirectory) + "/") == 0)
+    {
+        const std::string thumb_name = filename.substr(std::string(kImageThumbnailDirectory).size() + 1);
+        thumbnail_image_path = !thumb_name.empty() &&
+                               thumb_name.find('/') == std::string::npos &&
+                               thumb_name.find('\\') == std::string::npos &&
+                               thumb_name.find("..") == std::string::npos &&
+                               is_image_extension(thumb_name);
+    }
+
     if (filename.empty() ||
-        filename.find('/') != std::string::npos ||
         filename.find('\\') != std::string::npos ||
-        filename.find("..") != std::string::npos)
+        filename.find("..") != std::string::npos ||
+        (filename.find('/') != std::string::npos && !avatar_image_path && !thumbnail_image_path))
     {
         return build_error_response(403, "Forbidden", "<html><body><h1>403 Forbidden</h1></body></html>");
     }
@@ -4010,8 +4291,20 @@ HttpConn::Response WebServer::handle_media_api(const HttpConn::Request &request)
         return build_static_file_response(request, full_path);
     }
 
+    std::string accel_filename = url_encode_path_segment(resolved_filename);
+    if (avatar_image_path && resolved_filename.find("avatars/") == 0)
+    {
+        accel_filename = std::string("avatars/") +
+                         url_encode_path_segment(resolved_filename.substr(std::string("avatars/").size()));
+    }
+    else if (thumbnail_image_path && resolved_filename.find(std::string(kImageThumbnailDirectory) + "/") == 0)
+    {
+        accel_filename = std::string(kImageThumbnailDirectory) + "/" +
+                         url_encode_path_segment(resolved_filename.substr(std::string(kImageThumbnailDirectory).size() + 1));
+    }
+
     HttpConn::Response response = build_response_with_body(200, "OK", get_content_type(resolved_filename), "");
-    response.headers["X-Accel-Redirect"] = accel_prefix + url_encode_path_segment(resolved_filename);
+    response.headers["X-Accel-Redirect"] = accel_prefix + accel_filename;
     response.headers["Cache-Control"] = "private";
     return response;
 }
@@ -4028,11 +4321,116 @@ HttpConn::Response WebServer::handle_current_user_api(const HttpConn::Request &r
                                         "{\"ok\":false,\"message\":\"not logged in\",\"redirect\":\"/login.html\"}");
     }
 
+    CGMysqlPool::UserProfileRecord profile;
+    if (m_db_pool.available())
+    {
+        m_db_pool.fetch_user_profile(username, profile);
+    }
+
     std::ostringstream body;
     body << "{"
          << "\"ok\":true,"
          << "\"username\":\"" << json_escape(username) << "\","
-         << "\"role\":\"" << (is_admin ? "admin" : "user") << "\""
+         << "\"role\":\"" << (is_admin ? "admin" : "user") << "\","
+         << "\"avatar_url\":\"" << json_escape(profile.avatar_url) << "\","
+         << "\"bio\":\"" << json_escape(profile.bio) << "\""
+         << "}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_update_my_profile_api(const HttpConn::Request &request) const
+{
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database unavailable\"}");
+    }
+
+    const std::map<std::string, std::string> form = m_http_conn.parse_form_urlencoded(request.body);
+    const std::string bio = trim_whitespace(form.count("bio") ? form.find("bio")->second : "");
+    if (bio.size() > 500)
+    {
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"bio is too long\"}");
+    }
+
+    CGMysqlPool::UserProfileRecord current_profile;
+    m_db_pool.fetch_user_profile(username, current_profile);
+    if (!m_db_pool.upsert_user_profile(username, current_profile.avatar_url, bio))
+    {
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"profile update failed\"}");
+    }
+
+    std::ostringstream body;
+    body << "{"
+         << "\"ok\":true,"
+         << "\"username\":\"" << json_escape(username) << "\","
+         << "\"avatar_url\":\"" << json_escape(current_profile.avatar_url) << "\","
+         << "\"bio\":\"" << json_escape(bio) << "\""
+         << "}";
+    return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
+}
+
+HttpConn::Response WebServer::handle_upload_my_avatar_api(const HttpConn::Request &request) const
+{
+    std::string username;
+    bool is_admin = false;
+    if (!get_session(request, username, is_admin))
+    {
+        return build_unauthorized_json_response();
+    }
+
+    if (!m_db_pool.available())
+    {
+        return build_response_with_body(503,
+                                        "Service Unavailable",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"database unavailable\"}");
+    }
+
+    std::string saved_path;
+    std::string detail;
+    if (!save_uploaded_avatar(request, username, saved_path, detail))
+    {
+        AppLogger::error("avatar upload failed username=" + username + " detail=" + detail);
+        return build_response_with_body(400,
+                                        "Bad Request",
+                                        "application/json; charset=utf-8",
+                                        std::string("{\"ok\":false,\"message\":\"") +
+                                            json_escape_string(detail) + "\"}");
+    }
+
+    CGMysqlPool::UserProfileRecord current_profile;
+    m_db_pool.fetch_user_profile(username, current_profile);
+    if (!m_db_pool.upsert_user_profile(username, saved_path, current_profile.bio))
+    {
+        return build_response_with_body(500,
+                                        "Internal Server Error",
+                                        "application/json; charset=utf-8",
+                                        "{\"ok\":false,\"message\":\"avatar update failed\"}");
+    }
+
+    AppLogger::info("avatar upload success username=" + username + " path=" + saved_path);
+    std::ostringstream body;
+    body << "{"
+         << "\"ok\":true,"
+         << "\"username\":\"" << json_escape(username) << "\","
+         << "\"avatar_url\":\"" << json_escape(saved_path) << "\","
+         << "\"bio\":\"" << json_escape(current_profile.bio) << "\""
          << "}";
     return build_response_with_body(200, "OK", "application/json; charset=utf-8", body.str());
 }
@@ -4370,6 +4768,14 @@ HttpConn::Response WebServer::handle_request(const HttpConn::Request &request) c
     if (request.method == "GET" && request.path == "/api/me")
     {
         return handle_current_user_api(request);
+    }
+    if (request.method == "POST" && request.path == "/api/me/profile")
+    {
+        return handle_update_my_profile_api(request);
+    }
+    if (request.method == "POST" && request.path == "/api/me/avatar")
+    {
+        return handle_upload_my_avatar_api(request);
     }
     if (request.method == "GET" && request.path == "/api/me/favorites")
     {

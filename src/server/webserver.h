@@ -108,6 +108,8 @@ private:
     HttpConn::Response handle_list_videos_api() const;
     HttpConn::Response handle_media_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_current_user_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_update_my_profile_api(const HttpConn::Request &request) const;
+    HttpConn::Response handle_upload_my_avatar_api(const HttpConn::Request &request) const;
     HttpConn::Response handle_logout_api(const HttpConn::Request &request) const;
     HttpConn::Response build_error_response(int status_code, const std::string &status_text, const std::string &body) const;
     HttpConn::Response build_response_with_body(int status_code,
@@ -133,6 +135,9 @@ private:
     std::string unique_upload_filename(const std::string &directory_name, const std::string &filename) const;
     bool ensure_directory_exists(const std::string &path) const;
     bool image_record_file_exists(const CGMysqlPool::ImageRecord &image) const;
+    std::string image_thumbnail_filename(const std::string &filename) const;
+    std::string image_thumbnail_url(const std::string &filename, const std::string &fallback_url) const;
+    bool ensure_image_thumbnail(const std::string &filename) const;
     std::string build_images_json(const std::string &username) const;
     std::string build_images_page_json(std::size_t page, std::size_t limit, const std::string &username) const;
     std::string build_videos_json() const;
@@ -141,6 +146,10 @@ private:
     std::string build_cached_videos_json() const;
     void invalidate_media_list_cache(const std::string &directory_name) const;
     bool save_uploaded_image(const HttpConn::Request &request, std::string &saved_path, std::string &detail) const;
+    bool save_uploaded_avatar(const HttpConn::Request &request,
+                              const std::string &username,
+                              std::string &saved_path,
+                              std::string &detail) const;
     bool save_uploaded_media(const HttpConn::Request &request,
                              const std::string &directory_name,
                              const std::string &field_name,

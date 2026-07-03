@@ -11,6 +11,11 @@
   var favoritesGrid = document.getElementById("favorites-grid");
   var favoritesCount = document.getElementById("favorites-count");
   var favoritesStatus = document.getElementById("favorites-status");
+  var profileEditForm = document.getElementById("profile-edit-form");
+  var profileBio = document.getElementById("profile-bio");
+  var profileBioCount = document.getElementById("profile-bio-count");
+  var profileAvatarFile = document.getElementById("profile-avatar-file");
+  var profileAvatarButton = document.getElementById("profile-avatar-button");
   var adminOnlyLinks = Array.prototype.slice.call(document.querySelectorAll("[data-admin-only]"));
 
   var favoritePage = 1;
@@ -110,7 +115,7 @@
       imageWrap.href = "/app.html?image=" + encodeURIComponent(item.id);
       image.loading = "lazy";
       image.decoding = "async";
-      image.src = item.url || item.path || "";
+      image.src = item.thumb_url || item.thumbnail_url || item.url || item.path || "";
       image.alt = item.title || item.filename || "收藏图片";
       imageWrap.appendChild(image);
 
@@ -219,11 +224,21 @@
     var isAdmin = user.role === "admin";
     var roleLabel = isAdmin ? "管理员" : "普通用户";
 
-    avatar.textContent = initials(user.username);
+    avatar.innerHTML = "";
+    if (user.avatar_url) {
+      var avatarImage = document.createElement("img");
+      avatarImage.src = user.avatar_url;
+      avatarImage.alt = user.username || "avatar";
+      avatar.appendChild(avatarImage);
+    } else {
+      avatar.textContent = initials(user.username);
+    }
     rolePill.textContent = roleLabel;
     usernameTitle.textContent = "当前账号：" + user.username;
     accountName.textContent = user.username;
     accountRole.textContent = roleLabel;
+    profileBio.value = user.bio || "";
+    updateBioCount();
     adminOnlyLinks.forEach(function (link) {
       link.hidden = !isAdmin;
     });
@@ -244,6 +259,101 @@
       "<li>可以下载已有图片资源。</li>",
       "<li>不能上传图片或视频。</li>"
     ].join("");
+  }
+
+  function updateBioCount() {
+    profileBioCount.textContent = String(profileBio.value.length) + "/500";
+  }
+
+  function saveProfile(event) {
+    event.preventDefault();
+    var submitButton = profileEditForm.querySelector("button[type='submit']");
+    submitButton.disabled = true;
+    setStatus("正在保存个人简介...", "");
+
+    fetch("/api/me/profile", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: "bio=" + encodeURIComponent(profileBio.value)
+    })
+      .then(function (response) {
+        if (response.status === 401) {
+          window.location.href = "/login.html";
+          return null;
+        }
+        if (!response.ok) {
+          throw new Error("profile save failed");
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data) {
+          return;
+        }
+        profileBio.value = data.bio || "";
+        updateBioCount();
+        setStatus("个人简介已保存。", "ok");
+      })
+      .catch(function () {
+        setStatus("个人简介保存失败，请稍后再试。", "err");
+      })
+      .then(function () {
+        submitButton.disabled = false;
+      });
+  }
+
+  function uploadAvatar() {
+    var file = profileAvatarFile.files && profileAvatarFile.files[0];
+    if (!file) {
+      setStatus("请先选择头像图片。", "err");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setStatus("头像不能超过 2MB。", "err");
+      return;
+    }
+
+    var formData = new FormData();
+    formData.append("avatar", file);
+    profileAvatarButton.disabled = true;
+    setStatus("正在上传头像...", "");
+
+    fetch("/api/me/avatar", {
+      method: "POST",
+      credentials: "same-origin",
+      body: formData
+    })
+      .then(function (response) {
+        if (response.status === 401) {
+          window.location.href = "/login.html";
+          return null;
+        }
+        if (!response.ok) {
+          throw new Error("avatar upload failed");
+        }
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data) {
+          return;
+        }
+        avatar.innerHTML = "";
+        var avatarImage = document.createElement("img");
+        avatarImage.src = data.avatar_url;
+        avatarImage.alt = data.username || "avatar";
+        avatar.appendChild(avatarImage);
+        profileAvatarFile.value = "";
+        setStatus("头像已上传。", "ok");
+      })
+      .catch(function () {
+        setStatus("头像上传失败，请检查图片格式后再试。", "err");
+      })
+      .then(function () {
+        profileAvatarButton.disabled = false;
+      });
   }
 
   function loadCurrentUser() {
@@ -295,6 +405,10 @@
         logoutButton.disabled = false;
       });
   });
+
+  profileBio.addEventListener("input", updateBioCount);
+  profileEditForm.addEventListener("submit", saveProfile);
+  profileAvatarButton.addEventListener("click", uploadAvatar);
 
   window.addEventListener("scroll", function () {
     var nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 360;

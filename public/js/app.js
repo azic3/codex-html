@@ -140,11 +140,19 @@
   }
 
   function currentImageUrl(item) {
-    return item.__activeUrl || item.url;
+    return item.__activeUrl || item.url || item.path;
   }
 
-  function setImageSource(image, item, url) {
-    item.__activeUrl = url;
+  function currentThumbnailUrl(item) {
+    return item.__activeThumbUrl || item.thumb_url || item.thumbnail_url || currentImageUrl(item);
+  }
+
+  function setImageSource(image, item, url, thumbnail) {
+    if (thumbnail) {
+      item.__activeThumbUrl = url;
+    } else {
+      item.__activeUrl = url;
+    }
     if (imageLazyObserver) {
       image.dataset.src = url;
       imageLazyObserver.observe(image);
@@ -637,7 +645,7 @@
       return fileExt(item.title || item.url) === "png";
     }).length;
     var knownWidths = items.map(function (item) {
-      var url = currentImageUrl(item);
+      var url = currentThumbnailUrl(item);
       return imageMetaByUrl[url] && imageMetaByUrl[url].width;
     }).filter(Boolean);
     var averageWidth = knownWidths.length
@@ -667,7 +675,7 @@
       return;
     }
 
-    heroPreview.src = currentImageUrl(items[0]);
+    heroPreview.src = currentThumbnailUrl(items[0]);
     heroPreview.alt = items[0].title || "图片预览";
     heroPlaceholder.hidden = true;
 
@@ -715,14 +723,14 @@
       image.alt = item.title || "";
       image.loading = "lazy";
       image.decoding = "async";
-      setImageSource(image, item, currentImageUrl(item));
+      setImageSource(image, item, currentThumbnailUrl(item), true);
       title.textContent = item.title || item.url;
       path.textContent = displayFileName(item);
       size.textContent = formatFileSize(item.size);
       format.textContent = ext;
       isNew.hidden = index > 1;
-      resolution.textContent = imageMetaByUrl[currentImageUrl(item)]
-        ? imageMetaByUrl[currentImageUrl(item)].width + "x" + imageMetaByUrl[currentImageUrl(item)].height
+      resolution.textContent = imageMetaByUrl[currentThumbnailUrl(item)]
+        ? imageMetaByUrl[currentThumbnailUrl(item)].width + "x" + imageMetaByUrl[currentThumbnailUrl(item)].height
         : "--";
 
       downloadButtons.forEach(function (button) {
@@ -827,7 +835,7 @@
       image.addEventListener("load", function () {
         item.__missing = false;
         card.classList.remove("image-load-failed");
-        imageMetaByUrl[currentImageUrl(item)] = {
+        imageMetaByUrl[currentThumbnailUrl(item)] = {
           width: image.naturalWidth,
           height: image.naturalHeight
         };
@@ -836,9 +844,16 @@
       });
 
       image.addEventListener("error", function () {
-        var fallback = mediaFallbackUrl(item.url);
-        if (fallback && currentImageUrl(item) !== fallback) {
-          item.__activeUrl = fallback;
+        var original = item.url || item.path || "";
+        if (original && currentThumbnailUrl(item) !== original) {
+          item.__activeThumbUrl = original;
+          image.src = original;
+          return;
+        }
+
+        var fallback = mediaFallbackUrl(original);
+        if (fallback && currentThumbnailUrl(item) !== fallback) {
+          item.__activeThumbUrl = fallback;
           image.src = fallback;
           return;
         }

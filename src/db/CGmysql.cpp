@@ -244,6 +244,30 @@ bool ensure_images_table(MYSQL *conn, std::string &error_out)
     error_out.clear();
     return true;
 }
+
+bool ensure_user_profiles_table(MYSQL *conn, std::string &error_out)
+{
+    const char *profiles_sql =
+        "CREATE TABLE IF NOT EXISTS user_profiles ("
+        "username VARCHAR(64) NOT NULL,"
+        "avatar_url VARCHAR(512) NOT NULL DEFAULT '',"
+        "bio VARCHAR(500) NOT NULL DEFAULT '',"
+        "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+        "PRIMARY KEY (username)"
+        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+
+    if (mysql_query(conn, profiles_sql) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_query failed: " << mysql_error(conn);
+        error_out = message.str();
+        return false;
+    }
+
+    error_out.clear();
+    return true;
+}
 }
 #endif
 
@@ -252,7 +276,8 @@ CGMysqlPool::CGMysqlPool()
       m_max_conn(0),
       m_initialized(false),
       m_password_version_supported(false),
-      m_images_table_supported(false)
+      m_images_table_supported(false),
+      m_user_profiles_table_supported(false)
 {
 }
 
@@ -293,6 +318,7 @@ bool CGMysqlPool::init(const std::string &host,
     m_max_conn = max_conn > 0 ? max_conn : 1;
     m_password_version_supported = false;
     m_images_table_supported = false;
+    m_user_profiles_table_supported = false;
 
 #if !CGMYSQL_HAS_CLIENT
     m_last_error="MySQL client headers were not found at compile time.";
@@ -342,6 +368,7 @@ bool CGMysqlPool::init(const std::string &host,
             std::string schema_error;
             m_password_version_supported = ensure_password_version_column(conn, m_database, schema_error);
             m_images_table_supported = ensure_images_table(conn, schema_error);
+            m_user_profiles_table_supported = ensure_user_profiles_table(conn, schema_error);
         }
         m_connections.push(conn);
     }
@@ -744,6 +771,213 @@ bool CGMysqlPool::update_user_password(const std::string &username, const std::s
                               : "UPDATE user SET passwd=? WHERE username=? LIMIT 1",
                           param,
                           m_password_version_supported ? 3 : 2,
+                          error))
+    {
+        set_error(error);
+        return false;
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_last_error.clear();
+    }
+    return true;
+#endif
+}
+
+bool CGMysqlPool::fetch_user_profile(const std::string &username, UserProfileRecord &profile_out)
+{
+    profile_out = UserProfileRecord();
+    profile_out.username = username;
+#if !CGMYSQL_HAS_CLIENT
+    (void)username;
+    set_error("MySQL client support is unavailable in this build.");
+    return false;
+#else
+    if (!m_user_profiles_table_supported)
+    {
+        set_error("User profiles table is unavailable.");
+        return false;
+    }
+
+    CGMysqlGuard guard(*this);
+    if (!guard.valid())
+    {
+        set_error("No database connection is available.");
+        return false;
+    }
+
+    MYSQL *conn = guard.get();
+    MYSQL_STMT *stmt = mysql_stmt_init(conn);
+    if (stmt == nullptr)
+    {
+        set_error("mysql_stmt_init failed.");
+        return false;
+    }
+
+    const char *sql =
+        "SELECT avatar_url, bio, created_at, updated_at "
+        "FROM user_profiles WHERE username=? LIMIT 1";
+    if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_prepare failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    MYSQL_BIND param[1];
+    unsigned long username_length = 0;
+    bind_string_param(param[0], username, username_length);
+    if (mysql_stmt_bind_param(stmt, param) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_execute(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_execute failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    std::vector<char> avatar_buffer(1024);
+    std::vector<char> bio_buffer(2048);
+    std::vector<char> created_buffer(64);
+    std::vector<char> updated_buffer(64);
+    unsigned long lengths[4] = {0, 0, 0, 0};
+    MysqlBool nulls[4] = {0, 0, 0, 0};
+    MYSQL_BIND result[4];
+    std::memset(result, 0, sizeof(result));
+    result[0].buffer_type = MYSQL_TYPE_STRING;
+    result[0].buffer = avatar_buffer.data();
+    result[0].buffer_length = static_cast<unsigned long>(avatar_buffer.size());
+    result[0].length = &lengths[0];
+    result[0].is_null = &nulls[0];
+    result[1].buffer_type = MYSQL_TYPE_STRING;
+    result[1].buffer = bio_buffer.data();
+    result[1].buffer_length = static_cast<unsigned long>(bio_buffer.size());
+    result[1].length = &lengths[1];
+    result[1].is_null = &nulls[1];
+    result[2].buffer_type = MYSQL_TYPE_STRING;
+    result[2].buffer = created_buffer.data();
+    result[2].buffer_length = static_cast<unsigned long>(created_buffer.size());
+    result[2].length = &lengths[2];
+    result[2].is_null = &nulls[2];
+    result[3].buffer_type = MYSQL_TYPE_STRING;
+    result[3].buffer = updated_buffer.data();
+    result[3].buffer_length = static_cast<unsigned long>(updated_buffer.size());
+    result[3].length = &lengths[3];
+    result[3].is_null = &nulls[3];
+
+    if (mysql_stmt_bind_result(stmt, result) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_bind_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (mysql_stmt_store_result(stmt) != 0)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_store_result failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    const int fetch_status = mysql_stmt_fetch(stmt);
+    if (fetch_status == MYSQL_NO_DATA)
+    {
+        mysql_stmt_close(stmt);
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_last_error.clear();
+        return true;
+    }
+    if (fetch_status == 1)
+    {
+        std::ostringstream message;
+        message << "mysql_stmt_fetch failed: " << mysql_stmt_error(stmt);
+        set_error(message.str());
+        mysql_stmt_close(stmt);
+        return false;
+    }
+
+    if (!nulls[0])
+    {
+        profile_out.avatar_url.assign(avatar_buffer.data(), lengths[0]);
+    }
+    if (!nulls[1])
+    {
+        profile_out.bio.assign(bio_buffer.data(), lengths[1]);
+    }
+    if (!nulls[2])
+    {
+        profile_out.created_at.assign(created_buffer.data(), lengths[2]);
+    }
+    if (!nulls[3])
+    {
+        profile_out.updated_at.assign(updated_buffer.data(), lengths[3]);
+    }
+
+    mysql_stmt_close(stmt);
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_last_error.clear();
+    }
+    return true;
+#endif
+}
+
+bool CGMysqlPool::upsert_user_profile(const std::string &username,
+                                      const std::string &avatar_url,
+                                      const std::string &bio)
+{
+#if !CGMYSQL_HAS_CLIENT
+    (void)username;
+    (void)avatar_url;
+    (void)bio;
+    set_error("MySQL client support is unavailable in this build.");
+    return false;
+#else
+    if (!m_user_profiles_table_supported)
+    {
+        set_error("User profiles table is unavailable.");
+        return false;
+    }
+
+    CGMysqlGuard guard(*this);
+    if (!guard.valid())
+    {
+        set_error("No database connection is available.");
+        return false;
+    }
+
+    MYSQL *conn = guard.get();
+    MYSQL_BIND param[3];
+    unsigned long username_length = 0;
+    unsigned long avatar_length = 0;
+    unsigned long bio_length = 0;
+    bind_string_param(param[0], username, username_length);
+    bind_string_param(param[1], avatar_url, avatar_length);
+    bind_string_param(param[2], bio, bio_length);
+
+    std::string error;
+    if (!execute_prepared(conn,
+                          "INSERT INTO user_profiles(username, avatar_url, bio) VALUES(?, ?, ?) "
+                          "ON DUPLICATE KEY UPDATE "
+                          "avatar_url=VALUES(avatar_url), bio=VALUES(bio), updated_at=CURRENT_TIMESTAMP",
+                          param,
+                          3,
                           error))
     {
         set_error(error);

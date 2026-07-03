@@ -72,6 +72,15 @@ public:
         std::string favorited_at;
     };
 
+    struct UserProfileRecord
+    {
+        std::string username;
+        std::string avatar_url;
+        std::string bio;
+        std::string created_at;
+        std::string updated_at;
+    };
+
     CGMysqlPool();
     ~CGMysqlPool();
 
@@ -96,6 +105,10 @@ public:
     bool insert_user(const std::string &username, const std::string &password, const std::string &password_version);
     bool update_user_password(const std::string &username, const std::string &password);
     bool update_user_password(const std::string &username, const std::string &password, const std::string &password_version);
+    bool fetch_user_profile(const std::string &username, UserProfileRecord &profile_out);
+    bool upsert_user_profile(const std::string &username,
+                             const std::string &avatar_url,
+                             const std::string &bio);
     bool insert_image(const std::string &filename,
                       const std::string &url,
                       const std::string &uploader,
@@ -157,6 +170,7 @@ private:
     bool m_initialized;
     bool m_password_version_supported;
     bool m_images_table_supported;
+    bool m_user_profiles_table_supported;
 };
 
 class CGMysqlGuard

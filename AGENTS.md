@@ -296,7 +296,7 @@ http://localhost:9006/video.html
 
 - 公网入口：`http://116.62.240.214`
 - C++ 服务端口：`9006`
-- 服务器项目路径：`/root/codexhtml`
+- 服务器项目路径：`/var/www/codexhtml`
 - Nginx 示例配置：`docs/nginx-x-accel-example.conf`
 
 ### 分层职责
@@ -350,9 +350,9 @@ Nginx :80
 ### 协作注意事项
 
 - 本地 Windows 工作区只用于编辑代码，不作为真实运行环境。
-- 需要编译、运行、重启服务、验证接口时，应让用户在远程 Linux 服务器 `/root/codexhtml` 执行。
-- 修改 C++ 后端后，需要在服务器执行 `cd /root/codexhtml && make`。
+- 需要编译、运行、重启服务、验证接口时，应让用户在远程 Linux 服务器 `/var/www/codexhtml` 执行。
+- 修改 C++ 后端后，需要在服务器执行 `cd /var/www/codexhtml && make`。
 - 修改 Nginx 配置后，需要执行 `sudo nginx -t` 和 `sudo systemctl reload nginx`。
-- 不要把本地 Windows 路径写入 Nginx；Nginx 使用服务器 Linux 路径 `/root/codexhtml/...`。
+- 不要把本地 Windows 路径写入 Nginx；Nginx 使用服务器 Linux 路径 `/var/www/codexhtml/...`。
 
 ---

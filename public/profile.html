@@ -67,6 +67,24 @@
         </article>
 
         <article class="profile-card">
+          <div class="eyebrow">Profile</div>
+          <h2>个人简介</h2>
+          <form class="profile-edit-form" id="profile-edit-form">
+            <label for="profile-avatar-file">头像</label>
+            <div class="profile-avatar-upload">
+              <input type="file" id="profile-avatar-file" name="avatar" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp">
+              <button class="action-btn secondary" type="button" id="profile-avatar-button">上传头像</button>
+            </div>
+            <label for="profile-bio">简介</label>
+            <textarea id="profile-bio" name="bio" maxlength="500" rows="5" placeholder="写下你的简介"></textarea>
+            <div class="profile-edit-actions">
+              <span id="profile-bio-count">0/500</span>
+              <button class="action-btn secondary" type="submit">保存简介</button>
+            </div>
+          </form>
+        </article>
+
+        <article class="profile-card">
           <div class="eyebrow">Access</div>
           <h2>权限范围</h2>
           <ul class="permission-list" id="permission-list">
