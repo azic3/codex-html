@@ -170,6 +170,7 @@ private:
     bool m_initialized;
     bool m_password_version_supported;
     bool m_images_table_supported;
+    bool m_image_dual_write_supported;
     bool m_user_profiles_table_supported;
 };
 

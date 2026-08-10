@@ -1,7 +1,17 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++11 -Wall -Wextra -pthread
 LDFLAGS ?= -pthread
-LDLIBS ?= -lmysqlclient -lcurl -lcrypt
+MYSQL_CONFIG ?= mysql_config
+MYSQL_CFLAGS := $(shell $(MYSQL_CONFIG) --cflags 2>/dev/null)
+MYSQL_LIBS := $(shell $(MYSQL_CONFIG) --libs 2>/dev/null)
+
+ifeq ($(strip $(MYSQL_LIBS)),)
+MYSQL_LIBS := -lmysqlclient
+endif
+
+CXXFLAGS += $(MYSQL_CFLAGS)
+LDLIBS ?= -lcurl -lcrypt
+LDLIBS += $(MYSQL_LIBS)
 
 TARGET := build/server
 SOURCES := \

@@ -164,6 +164,12 @@ bool ensure_images_table(MYSQL *conn, std::string &error_out)
         "url VARCHAR(512) NOT NULL,"
         "uploader VARCHAR(64) DEFAULT NULL,"
         "size BIGINT UNSIGNED NOT NULL DEFAULT 0,"
+        "original_filename VARCHAR(255) DEFAULT NULL,"
+        "original_path VARCHAR(512) DEFAULT NULL,"
+        "file_size BIGINT UNSIGNED DEFAULT NULL,"
+        "status ENUM('downloaded','processing','review','published','rejected','duplicate','removed') "
+        "NOT NULL DEFAULT 'published',"
+        "published_at DATETIME DEFAULT NULL,"
         "like_count BIGINT UNSIGNED NOT NULL DEFAULT 0,"
         "comment_count BIGINT UNSIGNED NOT NULL DEFAULT 0,"
         "favorite_count BIGINT UNSIGNED NOT NULL DEFAULT 0,"
@@ -245,6 +251,26 @@ bool ensure_images_table(MYSQL *conn, std::string &error_out)
     return true;
 }
 
+bool supports_image_dual_write(MYSQL *conn)
+{
+    const char *sql =
+        "SELECT original_filename, original_path, file_size, status, published_at "
+        "FROM images LIMIT 0";
+    if (mysql_query(conn, sql) != 0)
+    {
+        return false;
+    }
+
+    MYSQL_RES *result = mysql_store_result(conn);
+    if (result == nullptr)
+    {
+        return false;
+    }
+
+    mysql_free_result(result);
+    return true;
+}
+
 bool ensure_user_profiles_table(MYSQL *conn, std::string &error_out)
 {
     const char *profiles_sql =
@@ -277,6 +303,7 @@ CGMysqlPool::CGMysqlPool()
       m_initialized(false),
       m_password_version_supported(false),
       m_images_table_supported(false),
+      m_image_dual_write_supported(false),
       m_user_profiles_table_supported(false)
 {
 }
@@ -318,6 +345,7 @@ bool CGMysqlPool::init(const std::string &host,
     m_max_conn = max_conn > 0 ? max_conn : 1;
     m_password_version_supported = false;
     m_images_table_supported = false;
+    m_image_dual_write_supported = false;
     m_user_profiles_table_supported = false;
 
 #if !CGMYSQL_HAS_CLIENT
@@ -368,6 +396,8 @@ bool CGMysqlPool::init(const std::string &host,
             std::string schema_error;
             m_password_version_supported = ensure_password_version_column(conn, m_database, schema_error);
             m_images_table_supported = ensure_images_table(conn, schema_error);
+            m_image_dual_write_supported =
+                m_images_table_supported && supports_image_dual_write(conn);
             m_user_profiles_table_supported = ensure_user_profiles_table(conn, schema_error);
         }
         m_connections.push(conn);
@@ -1028,10 +1058,20 @@ bool CGMysqlPool::insert_image(const std::string &filename,
         return false;
     }
 
-    const char *sql =
-        "INSERT INTO images(filename, url, uploader, size) VALUES(?, ?, ?, ?) "
-        "ON DUPLICATE KEY UPDATE "
-        "url=VALUES(url), uploader=VALUES(uploader), size=VALUES(size), updated_at=CURRENT_TIMESTAMP";
+    const char *sql = m_image_dual_write_supported
+                          ? "INSERT INTO images("
+                            "filename, url, uploader, size, "
+                            "original_filename, original_path, file_size, status, published_at"
+                            ") VALUES(?, ?, ?, ?, ?, ?, ?, 'published', CURRENT_TIMESTAMP) "
+                            "ON DUPLICATE KEY UPDATE "
+                            "url=VALUES(url), uploader=VALUES(uploader), size=VALUES(size), "
+                            "original_filename=VALUES(original_filename), "
+                            "original_path=VALUES(original_path), file_size=VALUES(file_size), "
+                            "updated_at=CURRENT_TIMESTAMP"
+                          : "INSERT INTO images(filename, url, uploader, size) VALUES(?, ?, ?, ?) "
+                            "ON DUPLICATE KEY UPDATE "
+                            "url=VALUES(url), uploader=VALUES(uploader), size=VALUES(size), "
+                            "updated_at=CURRENT_TIMESTAMP";
     if (mysql_stmt_prepare(stmt, sql, static_cast<unsigned long>(std::strlen(sql))) != 0)
     {
         std::ostringstream message;
@@ -1041,11 +1081,14 @@ bool CGMysqlPool::insert_image(const std::string &filename,
         return false;
     }
 
-    MYSQL_BIND param[4];
+    MYSQL_BIND param[7];
     std::memset(param, 0, sizeof(param));
     unsigned long filename_length = 0;
     unsigned long url_length = 0;
     unsigned long uploader_length = 0;
+    unsigned long original_filename_length = 0;
+    unsigned long original_path_length = 0;
+    const std::string original_path = "public/images/" + filename;
     bind_string_param(param[0], filename, filename_length);
     bind_string_param(param[1], url, url_length);
     bind_string_param(param[2], uploader, uploader_length);
@@ -1053,8 +1096,19 @@ bool CGMysqlPool::insert_image(const std::string &filename,
     param[3].buffer = &size;
     param[3].buffer_length = sizeof(size);
     param[3].is_unsigned = 1;
+    if (m_image_dual_write_supported)
+    {
+        bind_string_param(param[4], filename, original_filename_length);
+        bind_string_param(param[5], original_path, original_path_length);
+        param[6].buffer_type = MYSQL_TYPE_LONGLONG;
+        param[6].buffer = &size;
+        param[6].buffer_length = sizeof(size);
+        param[6].is_unsigned = 1;
+    }
 
-    if (mysql_stmt_bind_param(stmt, param) != 0)
+    const unsigned long param_count = m_image_dual_write_supported ? 7 : 4;
+    if (mysql_stmt_param_count(stmt) != param_count ||
+        mysql_stmt_bind_param(stmt, param) != 0)
     {
         std::ostringstream message;
         message << "mysql_stmt_bind_param failed: " << mysql_stmt_error(stmt);
