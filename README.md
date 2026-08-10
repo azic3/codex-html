@@ -4,6 +4,8 @@
 
 当前部署推荐采用 **Nginx + C++ WebServer** 的前后分层架构：
 
+![XIAOCHEN WebServer 项目架构流程图](docs/architecture-flowchart.svg)
+
 ```text
 浏览器
   |
