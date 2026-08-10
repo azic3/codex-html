@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="760" viewBox="0 0 1440 760" role="img" aria-labelledby="title description">
+  <title id="title">XIAOCHEN WebServer 项目架构流程图</title>
+  <desc id="description">浏览器请求经过 Nginx 转发至 C++ WebServer，后端访问 MySQL、Redis、本地媒体文件和 SMTP 服务。</desc>
+
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="primaryNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="serverNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#115e59"/>
+    </linearGradient>
+    <linearGradient id="dataNode" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#334155"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#020617" flood-opacity="0.45"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .title { fill: #f8fafc; font: 700 30px "Microsoft YaHei", "Noto Sans SC", sans-serif; }
+      .subtitle { fill: #94a3b8; font: 16px "Microsoft YaHei", "Noto Sans SC", sans-serif; }
+      .node-title { fill: #ffffff; font: 700 20px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .node-text { fill: #dbeafe; font: 15px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .data-text { fill: #cbd5e1; font: 15px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+      .edge { fill: none; stroke: #94a3b8; stroke-width: 2.4; marker-end: url(#arrow); }
+      .edge-label { fill: #e2e8f0; font: 600 15px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; paint-order: stroke; stroke: #0f172a; stroke-width: 5px; stroke-linejoin: round; }
+      .note { fill: #94a3b8; font: 14px "Microsoft YaHei", "Noto Sans SC", sans-serif; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="760" rx="28" fill="url(#background)"/>
+  <rect x="24" y="24" width="1392" height="712" rx="22" fill="none" stroke="#334155" stroke-width="2"/>
+
+  <text class="title" x="720" y="75" text-anchor="middle">XIAOCHEN WebServer 项目架构</text>
+  <text class="subtitle" x="720" y="105" text-anchor="middle">Nginx + C++ WebServer + MySQL + Redis</text>
+
+  <!-- 浏览器 -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="300" width="250" height="120" rx="16" fill="url(#primaryNode)" stroke="#60a5fa" stroke-width="2"/>
+    <text class="node-title" x="205" y="345">用户浏览器</text>
+    <text class="node-text" x="205" y="378">HTML / CSS / JavaScript</text>
+  </g>
+
+  <!-- Nginx -->
+  <g filter="url(#shadow)">
+    <rect x="430" y="300" width="230" height="120" rx="16" fill="#166534" stroke="#4ade80" stroke-width="2"/>
+    <text class="node-title" x="545" y="345">Nginx</text>
+    <text class="node-text" x="545" y="378">公网入口与反向代理</text>
+  </g>
+
+  <!-- C++ 服务 -->
+  <g filter="url(#shadow)">
+    <rect x="770" y="270" width="280" height="180" rx="18" fill="url(#serverNode)" stroke="#2dd4bf" stroke-width="2"/>
+    <text class="node-title" x="910" y="320">C++ WebServer</text>
+    <text class="node-text" x="910" y="355">接口、登录鉴权、上传处理</text>
+    <line x1="810" y1="378" x2="1010" y2="378" stroke="#5eead4" stroke-opacity="0.45"/>
+    <text class="node-text" x="910" y="410">epoll + 非阻塞 I/O + 线程池</text>
+  </g>
+
+  <!-- MySQL -->
+  <g filter="url(#shadow)">
+    <rect x="1170" y="145" width="200" height="100" rx="16" fill="url(#dataNode)" stroke="#60a5fa" stroke-width="2"/>
+    <text class="node-title" x="1270" y="183">MySQL</text>
+    <text class="data-text" x="1270" y="215">用户与业务数据</text>
+  </g>
+
+  <!-- Redis -->
+  <g filter="url(#shadow)">
+    <rect x="1170" y="280" width="200" height="100" rx="16" fill="url(#dataNode)" stroke="#f87171" stroke-width="2"/>
+    <text class="node-title" x="1270" y="318">Redis</text>
+    <text class="data-text" x="1270" y="350">验证码、限流、缓存</text>
+  </g>
+
+  <!-- 本地文件 -->
+  <g filter="url(#shadow)">
+    <rect x="1170" y="415" width="200" height="100" rx="16" fill="url(#dataNode)" stroke="#fbbf24" stroke-width="2"/>
+    <text class="node-title" x="1270" y="453">本地文件</text>
+    <text class="data-text" x="1270" y="485">图片和视频</text>
+  </g>
+
+  <!-- SMTP -->
+  <g filter="url(#shadow)">
+    <rect x="1170" y="550" width="200" height="100" rx="16" fill="url(#dataNode)" stroke="#c084fc" stroke-width="2"/>
+    <text class="node-title" x="1270" y="588">SMTP</text>
+    <text class="data-text" x="1270" y="620">发送邮箱验证码</text>
+  </g>
+
+  <!-- 主请求链路 -->
+  <path class="edge" d="M 330 340 C 365 340, 395 340, 430 340"/>
+  <text class="edge-label" x="380" y="324">访问页面、调用 API</text>
+
+  <path class="edge" d="M 660 360 C 700 360, 730 360, 770 360"/>
+  <text class="edge-label" x="715" y="342">转发动态请求</text>
+
+  <path class="edge" d="M 430 395 C 390 460, 345 460, 300 420"/>
+  <text class="edge-label" x="365" y="475">返回处理结果</text>
+
+  <!-- 后端依赖 -->
+  <path class="edge" d="M 1018 285 C 1080 230, 1110 195, 1170 195"/>
+  <text class="edge-label" x="1090" y="220">读写业务数据</text>
+
+  <path class="edge" d="M 1050 340 C 1090 335, 1125 330, 1170 330"/>
+  <text class="edge-label" x="1107" y="315">缓存与限流</text>
+
+  <path class="edge" d="M 1025 425 C 1080 445, 1115 465, 1170 465"/>
+  <text class="edge-label" x="1100" y="435">上传和读取媒体</text>
+
+  <path class="edge" d="M 980 450 C 1050 535, 1095 600, 1170 600"/>
+  <text class="edge-label" x="1075" y="555">发送验证码</text>
+
+  <!-- Nginx 媒体返回链路 -->
+  <path class="edge" d="M 1170 495 C 1040 690, 630 690, 545 420"/>
+  <text class="edge-label" x="825" y="675">Nginx 高效返回图片 / 视频</text>
+
+  <text class="note" x="720" y="718">浏览器 → Nginx → C++ 服务 → 数据库 / 缓存 / 文件 / 邮件服务</text>
+</svg>
