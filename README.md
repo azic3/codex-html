@@ -14,13 +14,13 @@ Nginx :80
   |
   |-- /css/、/js/ 等公开静态资源由 Nginx 直接返回
   |-- /api/ 反向代理到 C++ WebServer :9006
-  |-- /media/images/、/media/videos/ 先交给 C++ 校验登录态
+  |-- /media/images/、/media/videos/ 先交给 C++ 校验路径和文件
       |
       v
-    C++ 校验 Cookie Session
+    C++ 校验媒体路径与文件状态
       |
-      |-- 未登录：302 /login.html 或 401 JSON
-      |-- 已登录：返回 X-Accel-Redirect
+      |-- 非法路径或文件不存在：403 / 404
+      |-- 校验通过：返回 X-Accel-Redirect
               |
               v
             Nginx internal alias 发送 public/images 或 public/videos 下的真实文件
@@ -29,7 +29,7 @@ Nginx :80
 核心分工：
 
 - Nginx 负责入口流量、反向代理、静态资源发送、大图片和视频文件传输。
-- C++ WebServer 负责登录注册、Session 鉴权、上传、图片/视频列表、媒体访问授权、MySQL 和 Redis 相关业务逻辑。
+- C++ WebServer 负责登录注册、Session 鉴权、上传、图片/视频列表、媒体路径校验、MySQL 和 Redis 相关业务逻辑。
 - 浏览器不再直接使用 `/images/...` 和 `/videos/...` 访问媒体文件，而是使用 `/media/images/...` 和 `/media/videos/...`。
 - 真实文件仍保存在 `public/images/` 和 `public/videos/`。
 - Nginx 通过 `/_protected_images/` 和 `/_protected_videos/` 的 `internal alias` 发送真实文件，外部用户不能直接访问这两个 internal 路径。
@@ -57,11 +57,11 @@ docs/nginx-x-accel-example.conf
 
 - 登录成功后由后端生成随机 Session Token，通过 `HttpOnly` Cookie 下发。
 - Session 带过期时间，默认 2 小时，勾选记住登录后延长到 7 天。
-- `/app.html`、`/video.html`、`/profile.html` 和受保护 `/api/*` 会统一校验登录态。
+- `/profile.html` 和受保护 `/api/*` 会校验登录态；`/app.html`、`/video.html` 及图片/视频列表当前用于公开浏览。
 - `/api/images` 支持分页返回，前端滚动到底部继续加载。
 - 图片库使用瀑布流布局和懒加载，减少首屏压力。
 - 视频上传优先使用 2MB 分片上传，上传完成后后端合并为正式文件。
-- 图片和视频访问走 `/media/...` 鉴权路径，通过后由 Nginx `X-Accel-Redirect` 发送文件。
+- 图片和视频访问走 `/media/...` 路径，经 C++ 完成路径与文件校验后，由 Nginx `X-Accel-Redirect` 发送文件；登录态保护仍在生产化升级计划中。
 
 XIAOCHEN WebServer 是一个基于 C++ 的轻量级 WebServer 示例项目，使用 Linux 网络编程模型实现静态资源访问、用户登录注册、邮箱验证码、图片上传和视频上传等功能。
 
@@ -297,20 +297,20 @@ GET  /api/videos
 - SMTP 授权码泄露后应立即在邮箱服务商后台重新生成
 - 当前项目仍为学习/演示项目，生产环境还应补充 HTTPS、请求限流、日志脱敏、账号邮箱绑定和更完整的输入校验
 
-## 后续开发建议
+## 生产化升级路线
 
-- 将数据库连接信息、静态资源目录、上传大小限制等运行配置迁移到环境变量或配置文件
-- 为用户表增加邮箱、创建时间、更新时间等字段，并校验手机号与邮箱绑定关系
-- 增加数据库初始化 SQL 或轻量迁移脚本，避免部署时手动调整表结构
-- 将用户相关 SQL 拼接逻辑改为参数化语句，降低输入边界和 SQL 注入风险
-- 为验证码、登录、注册、找回密码和上传接口增加限流、失败次数限制与验证码尝试次数限制
-- 将密码哈希升级为 Argon2id 或 bcrypt，并保留旧哈希迁移方案
-- 强化登录态安全：会话过期、退出登录、Cookie 安全属性和简单 CSRF 防护
-- 为上传文件增加 MIME 嗅探、随机存储名、访问权限控制、磁盘配额和清理任务
-- 为视频播放补充 HTTP Range 请求支持，改善大视频拖动和断点加载体验
-- 增加核心接口的 curl 验证脚本、自动化测试和 CI 构建检查
-- 增加 HTTPS/反向代理、systemd 部署和 WSL/Linux 容器本地运行示例
-- 为前端补充上传进度、加载状态、空列表状态、可重试错误提示和基础无障碍属性
+项目后续按照“安全与一致性优先、稳定性与可验证性其次、基础设施扩展最后”的顺序推进：
+
+1. 删除硬编码管理员账号，修正媒体和页面鉴权规则，补齐 Cookie 安全属性、CSRF 防护与上传内容校验。
+2. 将 Session 迁移到 Redis，使登录态能够跨进程共享，并支持服务重启和多实例部署。
+3. 补充 HTTP Keep-Alive、`EPOLLOUT` 写事件和线程池队列上限，避免慢客户端、忙等和无限任务堆积。
+4. 增加数据库迁移 SQL、事务边界和必要索引，使表结构变更可追踪、关键写操作具备一致性保障。
+5. 添加单元测试、接口测试和 GitHub Actions，覆盖 HTTP 解析、鉴权、数据库、缓存及上传边界。
+6. 增加 `/health`、`/ready`、优雅停机和结构化请求日志，提高部署、发布和故障定位能力。
+7. 使用 `wrk` 建立可复现的压测基线，记录 QPS、P99 延迟和错误率；没有实测数据时不宣称性能指标。
+8. 最后再引入对象存储、Docker、Prometheus 和多实例部署，逐步完善存储、交付、监控与水平扩容能力。
+
+每项升级都应同时补充验证方法、运行文档和失败回退方案，避免只增加技术组件而缺少可维护性。
 
 ## 相关文档
 

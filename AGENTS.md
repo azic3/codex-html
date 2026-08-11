@@ -262,7 +262,7 @@ http://localhost:9006/video.html
 
 - 这是 Linux epoll 项目，不适合用 Windows 原生编译器直接构建。
 - 本地曾遇到 WSL 权限问题，导致无法完成 Linux 编译验证。
-- GitHub CLI `gh` 当前不可用；如果要创建 PR，需要先安装并登录 `gh`。
+- GitHub CLI `gh` 已安装；执行 GitHub 写操作前仍需运行 `gh auth status` 核对当前登录身份和权限。
 - `.vs/` 是 Visual Studio 生成目录，可能包含缓存文件，不建议作为业务代码修改。
 - 部分终端读取 UTF-8 中文文件时可能显示乱码；浏览器按 `<meta charset="UTF-8">` 解析。
 - 邮箱验证码已接入真实 SMTP 发送；运行前需要配置 SMTP 环境变量。
@@ -270,21 +270,20 @@ http://localhost:9006/video.html
 - `build/server` 是已编译二进制文件，改源码后需要重新编译才会生效。
 - 运行日志写入 `logs/app.log`，错误日志写入 `logs/error.log`；日志写入前会脱敏密码、验证码、token、SMTP 授权码等敏感信息。
 
-## 后续开发建议
+## 生产化升级路线（按优先级执行）
 
-- 将 MySQL 账号、数据库名、端口、静态资源目录、上传大小限制等运行配置从源码迁移到环境变量或配置文件。
-- 为用户表增加 `email`、`created_at`、`updated_at` 等字段，并在注册和找回密码时校验手机号与邮箱绑定关系。
-- 增加数据库初始化 SQL 或轻量迁移脚本，避免部署时手动创建和调整表结构。
-- 将用户查询、注册、改密等 SQL 拼接逻辑改为参数化语句，降低输入边界和 SQL 注入风险。
-- 为验证码、登录、注册、找回密码、上传接口增加限流、失败次数限制、验证码尝试次数限制和验证码过期清理策略。
-- 将 SHA-512 crypt 密码哈希升级为 Argon2id 或 bcrypt，并提供清晰的哈希版本迁移方案。
-- 强化登录态安全：增加会话过期、退出登录、Cookie `HttpOnly` / `SameSite` / `Secure` 配置和简单 CSRF 防护。
-- 为上传文件增加 MIME 嗅探、随机存储名、访问权限控制、磁盘配额、文件清理任务和危险 SVG 内容防护。
-- 为视频播放补充 HTTP Range 请求支持，让大视频可以拖动进度和断点加载。
-- 为登录、注册、验证码、图片上传、视频上传、静态文件和目录列表补充最小 curl 验证脚本或自动化测试。
-- 增加 CI 构建检查、格式化检查和基础接口回归测试，减少改动后才发现 Linux 编译或运行问题。
-- 增加 HTTPS/反向代理部署示例，例如 Nginx + systemd 服务配置，并补充 WSL/Linux 容器本地运行说明。
-- 为前端补充上传进度、加载状态、空列表状态、可重试错误提示和基础无障碍属性。
+除非用户明确调整优先级，后续生产化改造按以下顺序推进，不为引入新组件而跳过前置的安全、测试和验证工作：
+
+1. 删除硬编码管理员账号，修正媒体和页面鉴权规则；同步检查 Cookie `HttpOnly` / `SameSite` / `Secure`、CSRF 防护、密码迁移、MIME 嗅探和危险 SVG 等安全边界。
+2. 将 Session 迁移到 Redis，支持服务重启后恢复登录态和多实例共享；明确 TTL、续期、注销、Redis 不可用时的处理策略。
+3. 补充 HTTP Keep-Alive、`EPOLLOUT` 写事件和线程池队列上限；禁止在 `EAGAIN` 时忙等，并为队列满载设计明确的拒绝或降级响应。
+4. 增加可重复执行的数据库迁移 SQL、事务边界和必要索引；表结构变更必须可追踪、可验证，并说明回滚策略。
+5. 添加单元测试、接口测试和 GitHub Actions；优先覆盖 HTTP 解析、路径安全、鉴权、Session、MySQL、Redis、验证码和上传边界。
+6. 增加 `/health`、`/ready`、优雅停机和结构化请求日志；日志应包含 Request ID、状态码和耗时，同时继续执行敏感字段脱敏。
+7. 使用 `wrk` 建立可复现压测基线，记录机器配置、启动参数、并发参数、QPS、P99 延迟和错误率；未经实测不得在文档或简历中填写性能数字。
+8. 完成上述基础能力后，再评估对象存储、Docker、Prometheus 和多实例部署，逐步完善文件持久化、交付、监控和水平扩容。
+
+每项升级都必须同步更新相关文档和配置，并提供与风险相匹配的测试或远程 Linux 验证步骤；无法验证时明确记录未验证范围。
 
 # XIAOCHEN WebServer 当前协作架构补充
 
@@ -309,13 +308,13 @@ Nginx :80
   |
   |-- /css/、/js/：Nginx 直接发送
   |-- /api/：反向代理到 127.0.0.1:9006
-  |-- /media/images/、/media/videos/：反向代理到 C++ 做登录态鉴权
+  |-- /media/images/、/media/videos/：反向代理到 C++ 做路径和文件校验
       |
       v
     C++ WebServer
       |
-      |-- 未登录：302 /login.html 或 401 JSON
-      |-- 已登录：返回 X-Accel-Redirect
+      |-- 非法路径或文件不存在：403 / 404
+      |-- 校验通过：返回 X-Accel-Redirect
               |
               v
             Nginx internal alias 发送 public/images 或 public/videos 中的真实文件
@@ -336,8 +335,9 @@ Nginx :80
 - Cookie 属性：`HttpOnly; Path=/; SameSite=Lax; Max-Age=...`。
 - 默认 Session 有效期：2 小时。
 - 勾选记住登录后有效期：7 天。
-- `/app.html`、`/video.html`、`/profile.html` 和除登录/注册/验证码/找回密码外的 `/api/*` 都需要登录态。
+- `/profile.html` 和受保护 `/api/*` 需要登录态；`/app.html`、`/video.html`、`GET /api/images`、`GET /api/videos` 以及 `/media/...` 当前允许公开浏览。
 - 未登录访问受保护页面会跳转 `/login.html`；未登录访问受保护 API 返回 `401 JSON`。
+- 媒体登录态保护尚未完成，后续必须按“生产化升级路线”第一项修正后才能在文档或简历中宣称媒体访问已鉴权。
 
 ### 图片和视频能力
 
