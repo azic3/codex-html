@@ -481,8 +481,10 @@
     chip.addEventListener("click", function () {
       chips.forEach(function (item) {
         item.classList.remove("active");
+        item.setAttribute("aria-pressed", "false");
       });
       chip.classList.add("active");
+      chip.setAttribute("aria-pressed", "true");
       activeFilter = chip.dataset.filter || "all";
       renderVideos();
     });
@@ -492,8 +494,10 @@
     btn.addEventListener("click", function () {
       viewBtns.forEach(function (item) {
         item.classList.remove("active");
+        item.setAttribute("aria-pressed", "false");
       });
       btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
       videoGrid.classList.toggle("list-view", btn.dataset.view === "list");
     });
   });

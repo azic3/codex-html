@@ -4,52 +4,43 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>XIAOCHEN - 视频管理</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css">
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body class="video-library-page">
   <div class="fx-bg" aria-hidden="true"></div>
-  <div class="fx-particles" aria-hidden="true">
-    <span style="--x: 8%; --s: 2px; --d: 13s; --delay: 0s;"></span>
-    <span style="--x: 15%; --s: 1px; --d: 17s; --delay: -5s;"></span>
-    <span style="--x: 24%; --s: 3px; --d: 22s; --delay: -9s;"></span>
-    <span style="--x: 32%; --s: 2px; --d: 15s; --delay: -2s;"></span>
-    <span style="--x: 41%; --s: 1px; --d: 19s; --delay: -11s;"></span>
-    <span style="--x: 49%; --s: 2px; --d: 16s; --delay: -7s;"></span>
-    <span style="--x: 58%; --s: 3px; --d: 24s; --delay: -4s;"></span>
-    <span style="--x: 66%; --s: 1px; --d: 18s; --delay: -13s;"></span>
-    <span style="--x: 73%; --s: 2px; --d: 21s; --delay: -8s;"></span>
-    <span style="--x: 82%; --s: 1px; --d: 14s; --delay: -3s;"></span>
-    <span style="--x: 91%; --s: 2px; --d: 20s; --delay: -10s;"></span>
-    <span style="--x: 96%; --s: 3px; --d: 25s; --delay: -6s;"></span>
-  </div>
   <div class="video-layout">
     <aside class="video-sidebar">
       <div class="video-brand">
         <span class="video-brand-mark">X</span>
-        <strong>XIAOCHEN</strong>
-        <span>内容控制台</span>
+        <div>
+          <strong>XIAOCHEN</strong>
+          <span>内容控制台</span>
+        </div>
       </div>
 
       <nav class="video-nav" aria-label="主导航">
-        <a href="/home.html"><span class="nav-icon">H</span>主页</a>
-        <span class="video-nav-section">· 媒体库 ·</span>
-        <a href="/app.html"><span class="nav-icon">I</span>图片库</a>
-        <a class="active" href="/video.html"><span class="nav-icon">V</span>视频库</a>
-        <span class="video-nav-section">· 账户 ·</span>
-        <a href="/profile.html"><span class="nav-icon">U</span>个人中心</a>
+        <span class="video-nav-section">导航</span>
+        <a href="/home.html"><i class="ph ph-house nav-icon" aria-hidden="true"></i><span>主页</span></a>
+        <a href="/app.html"><i class="ph ph-image-square nav-icon" aria-hidden="true"></i><span>图片库</span></a>
+        <a class="active" href="/video.html" aria-current="page"><i class="ph ph-video-camera nav-icon" aria-hidden="true"></i><span>视频库</span></a>
+        <span class="video-nav-section">账户</span>
+        <a href="/profile.html"><i class="ph ph-user-circle nav-icon" aria-hidden="true"></i><span>个人中心</span></a>
       </nav>
 
-      <a class="video-logout" href="/login.html"><span class="nav-icon">Q</span>退出登录</a>
+      <a class="video-logout" href="/login.html"><i class="ph ph-sign-out nav-icon" aria-hidden="true"></i><span>退出登录</span></a>
     </aside>
 
     <main class="video-main">
       <header class="video-topbar">
         <div class="video-page-title">
-          <span>· 影藏阁 ·</span>
           <h1>视频库</h1>
+          <p>管理、筛选和播放已上传的视频素材</p>
         </div>
         <div class="video-topbar-actions">
-          <button class="video-btn primary" type="button" id="video-upload-trigger" hidden>上传视频</button>
+          <button class="video-btn primary" type="button" id="video-upload-trigger" hidden>
+            <i class="ph ph-upload-simple" aria-hidden="true"></i><span>上传视频</span>
+          </button>
         </div>
       </header>
 
@@ -62,7 +53,7 @@
           <form class="video-upload-form" id="video-upload-form">
             <label class="video-drop-zone" id="video-drop-zone">
               <input type="file" id="upload-video" name="video" accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,.m4v,video/*">
-              <span class="video-upload-icon">UP</span>
+              <span class="video-upload-icon"><i class="ph ph-cloud-arrow-up" aria-hidden="true"></i></span>
               <strong>拖拽视频到此处上传</strong>
               <span>或 <em>点击选择文件</em> 开始上传</span>
               <span class="format-row">
@@ -109,16 +100,23 @@
 
           <div class="video-filter-bar">
             <label class="video-search">
-              <span>搜索</span>
+              <i class="ph ph-magnifying-glass" aria-hidden="true"></i>
+              <span class="sr-only">搜索视频</span>
               <input id="video-search-input" type="search" placeholder="搜索视频文件名...">
             </label>
-            <button class="video-chip active" type="button" data-filter="all">全部</button>
-            <button class="video-chip" type="button" data-filter="mp4">MP4</button>
-            <button class="video-chip" type="button" data-filter="webm">WEBM</button>
-            <button class="video-chip" type="button" data-filter="mov">MOV</button>
+            <div class="video-filter-options" aria-label="视频格式筛选">
+              <button class="video-chip active" type="button" data-filter="all" aria-pressed="true">全部</button>
+              <button class="video-chip" type="button" data-filter="mp4" aria-pressed="false">MP4</button>
+              <button class="video-chip" type="button" data-filter="webm" aria-pressed="false">WEBM</button>
+              <button class="video-chip" type="button" data-filter="mov" aria-pressed="false">MOV</button>
+            </div>
             <div class="video-view-toggle" aria-label="视图切换">
-              <button class="active" type="button" data-view="grid">网格</button>
-              <button type="button" data-view="list">列表</button>
+              <button class="active" type="button" data-view="grid" aria-pressed="true" title="网格视图">
+                <i class="ph ph-squares-four" aria-hidden="true"></i><span class="sr-only">网格视图</span>
+              </button>
+              <button type="button" data-view="list" aria-pressed="false" title="列表视图">
+                <i class="ph ph-list" aria-hidden="true"></i><span class="sr-only">列表视图</span>
+              </button>
             </div>
           </div>
 
@@ -156,7 +154,9 @@
         <span class="redesign-video-path"></span>
         <div class="redesign-video-footer">
           <span class="redesign-video-size">--</span>
-          <a class="icon-btn" href="#" download title="下载视频">下载</a>
+          <a class="icon-btn" href="#" download title="下载视频" aria-label="下载视频">
+            <i class="ph ph-download-simple" aria-hidden="true"></i><span class="sr-only">下载</span>
+          </a>
         </div>
       </div>
     </article>
