@@ -40,6 +40,9 @@
   var commentInput = document.getElementById("comment-input");
   var commentCharCount = document.getElementById("comment-char-count");
   var commentSubmit = document.getElementById("comment-submit");
+  var galleryLoadSentinel = document.getElementById("gallery-load-sentinel");
+  var lightboxDialog = lightbox.querySelector(".lightbox-dialog");
+  var commentDrawerPanel = commentDrawer.querySelector(".comment-drawer-panel");
 
   var galleryItems = [];
   var imagePage = 1;
@@ -52,12 +55,14 @@
   var activeFilter = "all";
   var imageMetaByUrl = {};
   var imageLazyObserver = null;
+  var paginationObserver = null;
   var activeCommentImage = null;
   var commentPage = 1;
   var commentHasMore = false;
   var commentLoading = false;
   var pendingPreviewImageId = new URLSearchParams(window.location.search).get("image");
   var shareAutoOpened = false;
+  var lastFocusedElement = null;
 
   if ("IntersectionObserver" in window) {
     imageLazyObserver = new IntersectionObserver(function (entries) {
@@ -76,18 +81,67 @@
     window.location.href = "/login.html?next=" + encodeURIComponent(window.location.pathname + window.location.search);
   }
 
+  function rememberFocus() {
+    if (document.activeElement && document.activeElement !== document.body) {
+      lastFocusedElement = document.activeElement;
+    }
+  }
+
+  function restoreFocus() {
+    if (lastFocusedElement && document.contains(lastFocusedElement)) {
+      lastFocusedElement.focus();
+    }
+    lastFocusedElement = null;
+  }
+
+  function syncModalState() {
+    var hasOpenModal = lightbox.classList.contains("open") || commentDrawer.classList.contains("open");
+    document.body.classList.toggle("modal-open", hasOpenModal);
+  }
+
+  function trapFocus(container, event) {
+    var focusable = Array.prototype.slice.call(container.querySelectorAll(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(function (element) {
+      return element.offsetParent !== null;
+    });
+
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function openPreview(src, title) {
+    rememberFocus();
     lightboxImage.src = src;
     lightboxImage.alt = title;
     lightboxTitle.textContent = title;
     lightboxLink.href = src;
     lightbox.classList.add("open");
     lightbox.setAttribute("aria-hidden", "false");
+    syncModalState();
+    closeButton.focus();
   }
 
   function closePreview() {
+    if (!lightbox.classList.contains("open")) {
+      return;
+    }
     lightbox.classList.remove("open");
     lightbox.setAttribute("aria-hidden", "true");
+    syncModalState();
+    restoreFocus();
   }
 
   function formatFileSize(bytes) {
@@ -154,6 +208,7 @@
       item.__activeUrl = url;
     }
     if (imageLazyObserver) {
+      image.removeAttribute("src");
       image.dataset.src = url;
       imageLazyObserver.observe(image);
     } else {
@@ -173,9 +228,12 @@
   }
 
   function updateReactionButton(button, active, count, activeText, inactiveText) {
+    var label = active ? activeText : inactiveText;
     button.classList.toggle("active", !!active);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.querySelector(".action-label").textContent = active ? activeText : inactiveText;
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.querySelector(".action-label").textContent = label;
     button.querySelector(".action-count").textContent = formatCount(count);
   }
 
@@ -219,6 +277,8 @@
   }
 
   function updateCommentButton(button, count) {
+    button.setAttribute("aria-label", "评论");
+    button.title = "评论";
     button.querySelector(".action-count").textContent = formatCount(count);
   }
 
@@ -251,7 +311,7 @@
     textarea.select();
     try {
       document.execCommand("copy");
-      showToast("链接已复制");
+      showToast("已复制到剪贴板");
     } catch (e) {
       showToast("复制失败，请手动复制链接");
     }
@@ -261,7 +321,7 @@
   function fallbackCopy(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
-        showToast("链接已复制");
+        showToast("已复制到剪贴板");
       }).catch(function () {
         legacyCopy(text);
       });
@@ -318,6 +378,7 @@
       return;
     }
 
+    rememberFocus();
     activeCommentImage = item;
     commentPage = 1;
     commentHasMore = false;
@@ -328,6 +389,8 @@
     commentList.innerHTML = '<div class="comment-empty">正在加载评论...</div>';
     commentDrawer.classList.add("open");
     commentDrawer.setAttribute("aria-hidden", "false");
+    syncModalState();
+    commentDrawerClose.focus();
     loadComments(1, false);
   }
 
@@ -336,10 +399,16 @@
       return;
     }
 
+    if (!commentDrawer.classList.contains("open")) {
+      return;
+    }
+
     commentDrawer.classList.remove("open");
     commentDrawer.setAttribute("aria-hidden", "true");
     commentList.innerHTML = "";
     activeCommentImage = null;
+    syncModalState();
+    restoreFocus();
   }
 
   function renderComments(items, append) {
@@ -516,6 +585,18 @@
     uploadRetry.hidden = !options.canRetry;
   }
 
+  function setUploadButtonState(isUploading) {
+    var label = uploadSubmit.querySelector("span");
+    var icon = uploadSubmit.querySelector("i");
+    uploadSubmit.disabled = isUploading;
+    if (label) {
+      label.textContent = isUploading ? "上传中" : "上传";
+    }
+    if (icon) {
+      icon.className = isUploading ? "ph ph-spinner-gap" : "ph ph-upload-simple";
+    }
+  }
+
   function parseUploadResponse(xhr) {
     try {
       return xhr.responseText ? JSON.parse(xhr.responseText) : {};
@@ -556,8 +637,7 @@
     var xhr = new XMLHttpRequest();
 
     formData.append("image", file);
-    uploadSubmit.disabled = true;
-    uploadSubmit.textContent = "上传中";
+    setUploadButtonState(true);
     setUploadStatus("正在上传图片...", "", {
       progress: 0,
       meta: file.name + " · " + formatFileSize(file.size)
@@ -616,8 +696,7 @@
     });
 
     xhr.addEventListener("loadend", function () {
-      uploadSubmit.disabled = false;
-      uploadSubmit.textContent = "上传";
+      setUploadButtonState(false);
     });
 
     xhr.open("POST", "/api/upload");
@@ -635,6 +714,78 @@
       var matchesSearch = !query || title.indexOf(query) !== -1;
       return matchesFilter && matchesSearch;
     });
+  }
+
+  function renderGallerySkeleton() {
+    galleryGrid.innerHTML = "";
+    galleryGrid.setAttribute("aria-busy", "true");
+    openFirstButton.disabled = true;
+
+    for (var i = 0; i < 8; i++) {
+      var skeleton = document.createElement("article");
+      skeleton.className = "gallery-skeleton";
+      skeleton.setAttribute("aria-hidden", "true");
+      skeleton.innerHTML = '<div class="gallery-skeleton-thumb"></div>' +
+        '<div class="gallery-skeleton-body">' +
+        '<div class="gallery-skeleton-line"></div>' +
+        '<div class="gallery-skeleton-line short"></div>' +
+        '</div>';
+      galleryGrid.appendChild(skeleton);
+    }
+  }
+
+  function renderGalleryState(iconName, title, detail, canRetry) {
+    var state = document.createElement("div");
+    var icon = document.createElement("i");
+    var heading = document.createElement("strong");
+    var description = document.createElement("span");
+
+    galleryGrid.innerHTML = "";
+    galleryGrid.setAttribute("aria-busy", "false");
+    state.className = "gallery-state";
+    icon.className = "ph " + iconName;
+    icon.setAttribute("aria-hidden", "true");
+    heading.textContent = title;
+    description.textContent = detail;
+    state.appendChild(icon);
+    state.appendChild(heading);
+    state.appendChild(description);
+
+    if (canRetry) {
+      var retry = document.createElement("button");
+      retry.className = "video-btn ghost";
+      retry.type = "button";
+      retry.innerHTML = '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>重新加载</span>';
+      retry.addEventListener("click", resetImages);
+      state.appendChild(retry);
+    }
+
+    galleryGrid.appendChild(state);
+  }
+
+  function setPaginationLoading(isLoading) {
+    galleryLoadSentinel.classList.toggle("loading", isLoading);
+    if (isLoading) {
+      galleryLoadSentinel.textContent = "";
+    } else if (!imageHasMore && galleryItems.length) {
+      galleryLoadSentinel.textContent = "已显示全部图片";
+    } else {
+      galleryLoadSentinel.textContent = "";
+    }
+  }
+
+  function renderPaginationError() {
+    galleryLoadSentinel.classList.remove("loading");
+    galleryLoadSentinel.innerHTML = "";
+    var retry = document.createElement("button");
+    retry.className = "video-btn ghost";
+    retry.type = "button";
+    retry.innerHTML = '<i class="ph ph-arrow-clockwise" aria-hidden="true"></i><span>继续加载</span>';
+    retry.addEventListener("click", function () {
+      imageHasMore = true;
+      loadImages(false);
+    });
+    galleryLoadSentinel.appendChild(retry);
   }
 
   function updateStats(items) {
@@ -666,10 +817,16 @@
   function renderGallery() {
     var items = filteredImages();
     galleryGrid.innerHTML = "";
+    galleryGrid.setAttribute("aria-busy", "false");
     updateStats(items);
+    openFirstButton.disabled = !items.length;
 
     if (!items.length) {
-      galleryGrid.innerHTML = '<div class="gallery-empty">没有找到匹配的图片。</div>';
+      if (galleryItems.length) {
+        renderGalleryState("ph-magnifying-glass", "没有匹配的图片", "换一个关键词或格式筛选后再试。", false);
+      } else {
+        renderGalleryState("ph-image-square", "图片库还是空的", canUpload ? "上传第一张图片后，素材会显示在这里。" : "管理员上传图片后，素材会显示在这里。", false);
+      }
       heroPreview.removeAttribute("src");
       heroPlaceholder.hidden = false;
       return;
@@ -705,13 +862,13 @@
       actionGroup.className = "image-card-actions";
       likeButton.className = "image-mini-action image-reaction-action like-action";
       likeButton.type = "button";
-      likeButton.innerHTML = '<span class="action-label">点赞</span><span class="action-count">0</span>';
+      likeButton.innerHTML = '<i class="ph ph-heart" aria-hidden="true"></i><span class="action-label sr-only">点赞</span><span class="action-count">0</span>';
       favoriteButton.className = "image-mini-action image-reaction-action favorite-action";
       favoriteButton.type = "button";
-      favoriteButton.innerHTML = '<span class="action-label">收藏</span><span class="action-count">0</span>';
+      favoriteButton.innerHTML = '<i class="ph ph-bookmark-simple" aria-hidden="true"></i><span class="action-label sr-only">收藏</span><span class="action-count">0</span>';
       commentButton.className = "image-mini-action comment-action";
       commentButton.type = "button";
-      commentButton.innerHTML = '<span class="action-label">评论</span><span class="action-count">0</span>';
+      commentButton.innerHTML = '<i class="ph ph-chat-circle" aria-hidden="true"></i><span class="action-label sr-only">评论</span><span class="action-count">0</span>';
       actionGroup.appendChild(likeButton);
       actionGroup.appendChild(favoriteButton);
       actionGroup.appendChild(commentButton);
@@ -763,12 +920,15 @@
 
       copyButton.addEventListener("click", function () {
         var value = item.path || currentImageUrl(item);
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(value);
-        }
-        copyButton.textContent = "已复制";
+        var copyIcon = copyButton.querySelector("i");
+        fallbackCopy(value);
+        copyButton.setAttribute("aria-label", "已复制图片路径");
+        copyButton.title = "已复制";
+        copyIcon.className = "ph ph-check";
         window.setTimeout(function () {
-          copyButton.textContent = "复制";
+          copyButton.setAttribute("aria-label", "复制图片路径");
+          copyButton.title = "复制路径";
+          copyIcon.className = "ph ph-copy";
         }, 1200);
       });
 
@@ -877,6 +1037,12 @@
     }
 
     imageLoading = true;
+    galleryGrid.setAttribute("aria-busy", "true");
+    if (reset) {
+      renderGallerySkeleton();
+    } else {
+      setPaginationLoading(true);
+    }
     return fetch("/api/images?page=" + imagePage + "&limit=" + imagePageSize)
       .then(function (response) {
         if (!response.ok) {
@@ -900,11 +1066,21 @@
         }
       })
       .catch(function () {
-        galleryGrid.innerHTML = '<div class="gallery-empty">图片列表加载失败，请刷新页面或确认服务正在运行。</div>';
-        updateStats([]);
+        if (reset || !galleryItems.length) {
+          imageHasMore = false;
+          renderGalleryState("ph-warning-circle", "图片列表加载失败", "请检查网络和服务状态，然后重新加载。", true);
+          updateStats([]);
+        } else {
+          imageHasMore = false;
+          renderPaginationError();
+        }
       })
       .then(function () {
         imageLoading = false;
+        galleryGrid.setAttribute("aria-busy", "false");
+        if (galleryLoadSentinel.children.length === 0) {
+          setPaginationLoading(false);
+        }
         tryOpenRequestedImage();
       });
   }
@@ -913,8 +1089,31 @@
     imagePage = 1;
     imageHasMore = true;
     galleryItems = [];
-    galleryGrid.innerHTML = "";
+    galleryLoadSentinel.innerHTML = "";
     return loadImages(true);
+  }
+
+  function setupPaginationObserver() {
+    if (paginationObserver || !galleryLoadSentinel) {
+      return;
+    }
+
+    if ("IntersectionObserver" in window) {
+      paginationObserver = new IntersectionObserver(function (entries) {
+        if (entries[0] && entries[0].isIntersecting) {
+          loadImages(false);
+        }
+      }, { rootMargin: "480px 0px" });
+      paginationObserver.observe(galleryLoadSentinel);
+      return;
+    }
+
+    window.addEventListener("scroll", function () {
+      var nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 420;
+      if (nearBottom) {
+        loadImages(false);
+      }
+    }, { passive: true });
   }
 
   function chooseFile(file) {
@@ -966,8 +1165,20 @@
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {
-      closePreview();
-      closeCommentDrawer();
+      if (commentDrawer.classList.contains("open")) {
+        closeCommentDrawer();
+      } else {
+        closePreview();
+      }
+      return;
+    }
+
+    if (event.key === "Tab") {
+      if (commentDrawer.classList.contains("open")) {
+        trapFocus(commentDrawerPanel, event);
+      } else if (lightbox.classList.contains("open")) {
+        trapFocus(lightboxDialog, event);
+      }
     }
   });
 
@@ -1053,8 +1264,10 @@
     chip.addEventListener("click", function () {
       chips.forEach(function (item) {
         item.classList.remove("active");
+        item.setAttribute("aria-pressed", "false");
       });
       chip.classList.add("active");
+      chip.setAttribute("aria-pressed", "true");
       activeFilter = chip.dataset.filter || "all";
       renderGallery();
     });
@@ -1064,20 +1277,16 @@
     btn.addEventListener("click", function () {
       viewBtns.forEach(function (item) {
         item.classList.remove("active");
+        item.setAttribute("aria-pressed", "false");
       });
       btn.classList.add("active");
+      btn.setAttribute("aria-pressed", "true");
       galleryGrid.classList.toggle("list-view", btn.dataset.view === "list");
     });
   });
 
   searchInput.addEventListener("input", renderGallery);
 
-  window.addEventListener("scroll", function () {
-    var nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 420;
-    if (nearBottom) {
-      loadImages(false);
-    }
-  }, { passive: true });
-
-  loadCurrentUser().then(resetImages);
+  renderGallerySkeleton();
+  loadCurrentUser().then(resetImages).then(setupPaginationObserver);
 })();
