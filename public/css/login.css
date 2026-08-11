@@ -36,16 +36,15 @@ input {
   font: inherit;
 }
 
-.login-video-bg {
+.login-image-bg {
   position: fixed;
   inset: 0;
   z-index: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  background: var(--ink);
-  filter: brightness(1.12) saturate(1.08);
+  background:
+    var(--ink)
+    url("/assets/login-bg-xianxia.png")
+    center center / cover
+    no-repeat;
   pointer-events: none;
 }
 
